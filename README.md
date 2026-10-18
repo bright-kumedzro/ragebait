@@ -121,7 +121,7 @@ The name appears in `GAME_NAME` (`src/config.js`), the `<title>`s in the HTML fi
 
 ## Deploying
 
-The game is a static site: there's no backend, so it scales to any number of players. To host it on Vercel, import the repo; `vercel.json` sets the Vite build, the `dist/` output and the cache headers (hashed files in `assets/` are cached for a year, `sw.js` and the manifest are checked on every visit).
+It's live at [playragebait.vercel.app](https://playragebait.vercel.app), deployed by Vercel on every push to `main`. The game is a static site with no backend, so it scales to any number of players. `vercel.json` sets the Vite build, the `dist/` output and the cache headers (hashed files in `assets/` are cached for a year, `sw.js` and the manifest are checked on every visit).
 
 The service worker loads the page network-first, so players get a new deploy on their next visit, and falls back to the cache when offline. The build stamps the cache name in `dist/sw.js` with a hash of the output (see `vite.config.js`), so each deploy gets a fresh cache and the old one is deleted.
 
