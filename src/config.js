@@ -26,6 +26,9 @@ export const SPIKE_POP = 0.06;   // seconds for a hidden spike to come up
 
 export const RESPAWN_DELAY = 0.55;
 
+// Challenges: a friend plays the same levels; fewest deaths wins, then the fastest time.
+export const CHALLENGE_LEVELS = 3;
+
 // Each chapter has its own palette. air: open space, solid: walls, floors and every hazard, ink: the runner,
 // door: the exit. ui: HUD buttons and text drawn on the air colour. Menus use paper and text (default air and ink).
 export const CHAPTERS = [

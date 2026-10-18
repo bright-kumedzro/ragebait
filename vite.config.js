@@ -22,22 +22,26 @@ function stampServiceWorker() {
   };
 }
 
-// `npm run dev` serves /about and /privacy the way Vercel's cleanUrls does.
-const cleanUrls = () => ({
-  name: 'clean-urls',
-  configureServer(server) {
+// `npm run dev` serves the api/ functions too, backed by the in-memory store, and /about and /privacy the way
+// Vercel's cleanUrls does.
+const devApi = () => ({
+  name: 'dev-api',
+  async configureServer(server) {
+    const { apiMiddleware } = await import('./scripts/api-dev.mjs');
     server.middlewares.use((req, res, next) => {
       if (/^\/(about|privacy)(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/(about|privacy)/, '/$1.html');
-      next();
+      apiMiddleware(req, res, next).catch(next);
     });
   },
 });
 
 export default {
   base: './',
+  // the single-file artifact build sets this to false: it has no server for challenges
+  define: { __COMPETE__: 'true' },
   build: {
     target: 'es2020',
     rollupOptions: { input: { main: 'index.html', about: 'about.html', privacy: 'privacy.html', notFound: '404.html' } },
   },
-  plugins: [stampServiceWorker(), cleanUrls()],
+  plugins: [stampServiceWorker(), devApi()],
 };

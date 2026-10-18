@@ -1,5 +1,6 @@
 // Drives the built game in headless Chrome: fails on console errors, beats level 1 with the solver's route, opens
-// each menu, and screenshots every level to artifact/shots/.
+// each menu, plays a whole challenge between two players (in-memory API), and screenshots every level to
+// artifact/shots/.
 // Usage: npm run build && node scripts/smoke-test.mjs   (set CHROME_PATH if Chrome isn't at the Windows default)
 import puppeteer from 'puppeteer-core';
 import { createServer } from 'node:http';
@@ -7,21 +8,32 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { LEVELS, compile } from '../src/levels/index.js';
 import { solve, toSteps } from '../src/levels/solver.js';
+import { createState, step } from '../src/sim.js';
+import { apiMiddleware } from './api-dev.mjs';
 
 const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
-const server = createServer(async (req, res) => {
+const serveStatic = async (req, res) => {
   const clean = decodeURIComponent(req.url.split('?')[0]).replace(/^\/(about|privacy)$/, '/$1.html');
   const path = join('dist', clean.replace(/\/$/, '/index.html'));
   try { const body = await readFile(path); res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream' }); res.end(body); }
   catch { try { res.writeHead(404, { 'content-type': 'text/html' }); res.end(await readFile(join('dist', '404.html'))); } catch { res.end(); } }
-}).listen(4790);
+};
+const server = createServer((req, res) => apiMiddleware(req, res, () => serveStatic(req, res))).listen(4790);
 
 const only = process.argv.includes('--levels-only');
 await mkdir('artifact/shots/levels', { recursive: true });
 const errors = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
-const route = (() => { const L = compile(LEVELS[0].def, '1-1'), r = solve(L); return toSteps(r.actions, r.chunk); })();
+const routeFor = id => { const i = LEVELS.findIndex(l => l.id === id), r = solve(compile(LEVELS[i].def, id)); return toSteps(r.actions, r.chunk); };
+const route = routeFor('1-1');
+// holding right on 1-1 runs into the falling floor: these inputs die exactly once, then the winning route follows
+const dieOnce = (() => {
+  const i = LEVELS.findIndex(l => l.id === '1-1'), L = compile(LEVELS[i].def, '1-1'), st = createState(L), steps = [];
+  while (st.status === 'play' && steps.length < 2000) { const inp = { l: 0, r: 1, j: 0 }; steps.push(inp); step(L, st, inp); }
+  return st.status === 'dead' ? steps : null;
+})();
+if (!dieOnce) errors.push('[setup] holding right on 1-1 should die');
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--autoplay-policy=no-user-gesture-required'] });
 async function open(name, viewport) {
@@ -85,6 +97,72 @@ if (!only) for (const [name, vp] of VIEWS) {
     if (!(y1 < y2 - 0.3)) errors.push(`[phone] the jump button didn't jump (y ${y1.toFixed(2)} then ${y2.toFixed(2)})`);
   }
   await page.close();
+}
+
+// a whole challenge: Ama (who has beaten 1-1 to 1-3) creates it and plays; Kofi opens the link, dies once, loses
+{
+  const save = (name, cleared) => JSON.stringify({ player: { id: '', name }, levels: Object.fromEntries(cleared.map(id => [id, { cleared: true, best: 0, time: 5, deaths: 0 }])) });
+  const ctxA = await browser.createBrowserContext(), ctxB = await browser.createBrowserContext();
+  const join = async (ctx, name, saved, url = 'http://localhost:4790/') => {
+    const page = await ctx.newPage();
+    await page.setViewport({ width: 1280, height: 720 });
+    page.on('console', m => { if (m.type() === 'error') errors.push(`[${name}] ${m.text()}`); });
+    page.on('pageerror', e => errors.push(`[${name}] ${e.message}`));
+    if (saved) await page.evaluateOnNewDocument(v => localStorage.setItem('ragebait.save.v1', v), saved);
+    await page.goto(url, { waitUntil: 'networkidle0' });
+    await page.evaluate(() => document.fonts.ready);
+    return page;
+  };
+  const playThrough = async (page, name) => {
+    for (let k = 0; k < 3; k++) {
+      await page.waitForFunction(() => window.__rb.state.mode === 'done' && !document.getElementById('mdlResult').hidden, { timeout: 20000 })
+        .catch(() => errors.push(`[${name}] challenge level ${k + 1} was not finished`));
+      if (k === 0) await page.screenshot({ path: `artifact/shots/challenge-${name}-level.png` });
+      await page.click('#btnNext');
+    }
+  };
+  const A = await join(ctxA, 'ama', save('Ama', ['1-1', '1-2', '1-3']));
+  await A.evaluate(r => window.__rb.routes(r), { '1-1': route, '1-2': routeFor('1-2'), '1-3': routeFor('1-3') });
+  await A.click('#btnCompete'); await wait(500);
+  await A.screenshot({ path: 'artifact/shots/challenge-1-list.png' });
+  await A.click('#btnNewChallenge'); await wait(300);
+  const pickable = (await A.$$('#pickList .lvl.pick:not(.locked)')).length;
+  if (pickable !== 3) errors.push(`[ama] expected 3 pickable levels, got ${pickable}`);
+  // the picker redraws after every tap, so find the next unpicked level each time
+  for (let i = 0; i < 3; i++) await A.click('#pickList .lvl.pick:not(.locked):not(.picked)');
+  const order = await A.$$eval('#pickList .order', els => els.map(e => e.textContent).join(''));
+  if (order !== '123') errors.push(`[ama] picked levels should be numbered 1, 2, 3 (got "${order}")`);
+  await A.screenshot({ path: 'artifact/shots/challenge-2-pick.png' });
+  await A.click('#btnCreate');
+  await A.waitForSelector('#chShare', { timeout: 8000 }).catch(() => errors.push('[ama] no invite screen after creating'));
+  await A.screenshot({ path: 'artifact/shots/challenge-3-invite.png' });
+  const link = await A.$eval('.ch-link', el => el.textContent).catch(() => '');
+  const id = link.split('/c/')[1];
+  if (!id) errors.push(`[ama] no challenge link (${link})`);
+  await A.click('#chPlay');
+  await playThrough(A, 'ama');
+  await A.waitForSelector('.board', { timeout: 8000 }).catch(() => errors.push('[ama] no scoreboard after finishing'));
+
+  const preview = await (await fetch(`http://localhost:4790/c/${id}`)).text();
+  if (!preview.includes('Ama is trying to ragebait you')) errors.push('[share] the /c/ page has no challenge title');
+  const B = await join(ctxB, 'kofi', null, `http://localhost:4790/c/${id}`);
+  await B.waitForSelector('#chName', { timeout: 8000 }).catch(() => errors.push('[kofi] the invite did not ask for a name'));
+  await B.screenshot({ path: 'artifact/shots/challenge-4-invited.png' });
+  await B.type('#chName', 'Kofi');
+  await B.evaluate(r => window.__rb.routes(r), { '1-1': [...(dieOnce || []), ...route], '1-2': routeFor('1-2'), '1-3': routeFor('1-3') });
+  await B.click('#chPlay');
+  await playThrough(B, 'kofi');
+  await B.waitForFunction(() => /ragebaited you/.test(document.querySelector('.ch-head')?.textContent || ''), { timeout: 8000 })
+    .catch(async () => errors.push(`[kofi] expected "Ama ragebaited you", saw "${await B.$eval('.ch-head', el => el.textContent).catch(() => '?')}"`));
+  await B.screenshot({ path: 'artifact/shots/challenge-5-result.png' });
+  await A.waitForFunction(() => /You ragebaited Kofi/.test(document.querySelector('.ch-head')?.textContent || ''), { timeout: 15000 })
+    .catch(async () => errors.push(`[ama] the live view did not update to "You ragebaited Kofi" (saw "${await A.$eval('.ch-head', el => el.textContent).catch(() => '?')}")`));
+  await A.screenshot({ path: 'artifact/shots/challenge-6-won.png' });
+  await A.click('#btnChBack'); await wait(600);
+  await A.screenshot({ path: 'artifact/shots/challenge-7-record.png' });
+  const record = await A.$eval('#cmpRecord', el => el.textContent);
+  if (!/1\s*Win/.test(record)) errors.push(`[ama] record should show 1 win: "${record}"`);
+  await ctxA.close(); await ctxB.close();
 }
 
 // every level, as it first appears

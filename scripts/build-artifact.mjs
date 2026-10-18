@@ -6,8 +6,8 @@ const res = await build({
   entryPoints: ['src/main.js'],
   bundle: true, minify: true, format: 'iife', target: 'es2020',
   write: false, outdir: 'artifact/tmp',
-  // "dev" here only means: skip service-worker registration
-  define: { 'import.meta.env.DEV': 'true' },
+  // "dev" here only means: skip service-worker registration. Challenges need the API, which the artifact lacks.
+  define: { 'import.meta.env.DEV': 'true', __COMPETE__: 'false' },
   logLevel: 'warning',
 });
 const js = res.outputFiles.find(f => f.path.endsWith('.js')).text.replace(/<\/script/gi, '<\/script');

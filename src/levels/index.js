@@ -10,6 +10,16 @@ export const CHAPTER_LEVELS = [ch1, ch2, ch3];
 export const LEVELS = CHAPTER_LEVELS.flatMap((list, c) => list.map((def, i) => ({ id: `${c + 1}-${i + 1}`, ch: c, i, def })));
 export const levelIndex = id => LEVELS.findIndex(l => l.id === id);
 
+// A fingerprint of a level's layout and traps. Challenges store it, so a challenge made before a level was
+// changed is flagged instead of comparing deaths on two different levels.
+export function levelHash(idx) {
+  const { map, traps, fakeSkip } = LEVELS[idx].def;
+  const src = map.replace(/\s+/g, '\n') + JSON.stringify(traps || []) + (fakeSkip ? '!' : '');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+
 const SPIKES = { '^': SPIKE_U, V: SPIKE_D, '<': SPIKE_L, '>': SPIKE_R };
 const DOOR_W = 0.8, DOOR_H = 1.4;
 export const doorAt = (cx, cy) => [cx + 0.1, cy + 1 - DOOR_H]; // a door stands on the bottom of its cell

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Privacy · Ragebait</title>
-  <meta name="description" content="Ragebait keeps your progress on your device and collects nothing about you.">
+  <meta name="description" content="Ragebait keeps your progress on your device. Challenges store only the name you type and your scores.">
   <meta name="theme-color" content="#F7DFAE">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,27 +17,39 @@
 <main>
   <div>
     <h1>Privacy</h1>
-    <p class="lede">The short version: the game keeps your progress on your device, and nothing about you leaves it.</p>
+    <p class="lede">The short version: your progress stays on your device. Only if you use <b>Ragebait a friend</b> does the game send anything to a server: the name you type and your challenge scores.</p>
   </div>
 
   <section>
-    <h2>What’s stored</h2>
-    <p>Your browser’s local storage holds which levels you’ve beaten, your death counts and best times, and your settings (sound, music, vibration, controls). It stays on this device, is never sent anywhere, and there are no accounts.</p>
+    <h2>On your device</h2>
+    <p>Your browser’s local storage holds which levels you’ve beaten, your death counts and best times, and your settings (sound, music, vibration, controls). It stays on this device and there are no accounts.</p>
     <p>To delete it, use <b>Settings → Reset progress</b>, or clear this site’s data in your browser.</p>
   </section>
 
   <section>
-    <h2>What isn’t</h2>
+    <h2>Challenges</h2>
+    <p>When you create, accept or finish a challenge, our server stores:</p>
+    <ul>
+      <li>the name you typed, shown to everyone who opens that challenge’s link;</li>
+      <li>a random ID made by your device, so the game knows which scores are yours (it isn’t linked to you in any other way);</li>
+      <li>which levels the challenge uses, and your deaths and times on them.</li>
+    </ul>
+    <p>Anyone with a challenge’s link can see its scoreboard. Challenges and your win record are kept for a year, then deleted automatically. They’re stored in a Redis database run by Upstash.</p>
+    <p>To delete your challenge data at any time, use <b>Settings → Delete my challenge data</b>. That removes your scores, your accepted challenges and your win record. Challenges you created stay for the people who played them, with your name replaced by “Someone”.</p>
+  </section>
+
+  <section>
+    <h2>What isn’t stored</h2>
     <p>No analytics, no ads, no tracking, no cookies. The game doesn’t know who you are, and it doesn’t want to. It just wants you to fall in that hole again.</p>
   </section>
 
   <section>
     <h2>Other services</h2>
     <ul>
-      <li><b>Hosting:</b> the game is served by Vercel, which keeps standard server logs (such as IP addresses) for security and operations.</li>
+      <li><b>Hosting:</b> the game and its challenge server run on Vercel, which keeps standard server logs (such as IP addresses) for security and operations.</li>
       <li><b>Fonts:</b> the Bungee and Rubik fonts load from Google Fonts, which sees a request from your browser when the page first loads.</li>
     </ul>
-    <p>After the first visit, the game is cached on your device and works offline.</p>
+    <p>After the first visit, the game is cached on your device and works offline (challenges need a connection).</p>
   </section>
 
   <p class="meta">Last updated 18 October 2026.</p>

@@ -16,6 +16,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // live scores and challenge links are never cached
+  if (url.origin === location.origin && /^\/(api|c)\//.test(url.pathname)) return;
   if (req.mode === 'navigate') { e.respondWith(networkFirst(req)); return; }
   const cacheable = url.origin === location.origin || url.hostname.endsWith('fonts.googleapis.com') || url.hostname.endsWith('fonts.gstatic.com');
   if (!cacheable) return;
@@ -26,7 +28,7 @@ self.addEventListener('fetch', e => {
   }));
 });
 
-// The game's own page is cached as './' whatever its query; other pages (/about, /privacy) under their own
+// The game's own page is cached as './' whatever its query (?challenge=…); other pages (/about, /privacy) under their own
 // address, so visiting them never replaces the game in the offline cache.
 async function networkFirst(req) {
   const cache = await caches.open(CACHE);

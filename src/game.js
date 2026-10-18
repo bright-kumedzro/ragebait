@@ -1,11 +1,12 @@
-// Game flow: menus, starting levels, running the sim at a fixed step, deaths, respawns, wins and saving.
-import { STEP, RESPAWN_DELAY, CHAPTERS, TAUNTS, CLEAR_LINES, GAME_NAME } from './config.js';
-import { LEVELS, CHAPTER_LEVELS, getLevel } from './levels/index.js';
+// Game flow: menus, starting levels, running the sim at a fixed step, deaths, respawns, wins, challenges and saving.
+import { STEP, RESPAWN_DELAY, CHAPTERS, TAUNTS, CLEAR_LINES, GAME_NAME, CHALLENGE_LEVELS } from './config.js';
+import { LEVELS, CHAPTER_LEVELS, getLevel, levelIndex } from './levels/index.js';
 import { createState, step, fireExternal } from './sim.js';
 import { createRenderer } from './render.js';
 import { initInput, readInput, clearInput, setSwap } from './input.js';
 import { initAudio, applyAudio, suspendAudio, sound, setSong } from './audio.js';
 import { save, persist, resetSave, levelSave, isUnlocked, nextUnplayed } from './save.js';
+import * as Compete from './compete.js';
 import * as ui from './ui.js';
 
 const $ = id => document.getElementById(id);
@@ -14,7 +15,9 @@ let renderer, idx = 0, L = null, s = null;
 let mode = 'menu';          // 'menu' | 'play' | 'pause' | 'done'
 let acc = 0, last = 0, clock = 0, deadT = 0;
 let runDeaths = 0, runTime = 0, lastTaunt = '';
-let replaying = null;       // a list of inputs to play instead of the player's (the smoke test uses it)
+let chal = null;            // while playing a challenge: { id, rec }
+let replaying = null;       // inputs to play instead of the player's (the smoke test uses it)
+const routes = {};          // level id -> inputs, played automatically whenever that level starts (smoke test)
 
 const CAUSE_TAUNTS = {
   bite: ['That’s not a door.', 'It bites.', 'Doors don’t have teeth. Usually.'],
@@ -42,6 +45,7 @@ export function boot() {
   document.addEventListener('visibilitychange', () => {
     suspendAudio(document.hidden);
     if (document.hidden && mode === 'play') pause();
+    if (!document.hidden) liveNudge?.(); // coming back refreshes a live challenge view straight away
   });
 
   wireButtons();
@@ -50,11 +54,15 @@ export function boot() {
   last = performance.now();
   requestAnimationFrame(frame);
 
+  const invite = new URLSearchParams(location.search).get('challenge');
+  if (invite && Compete.available()) { history.replaceState(null, '', location.pathname); openChallenge(invite); }
+
   // for the smoke test and debugging
   window.__rb = {
-    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y }; },
+    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y, chal: chal?.id || null }; },
     play: (i, inputs) => { startLevel(i); replaying = { inputs, at: 0 }; },
     start: i => startLevel(i),
+    routes: (map) => Object.assign(routes, map),
   };
 }
 
@@ -74,9 +82,15 @@ function loadLevel(i, menu = false) {
   if (menu) mode = 'menu';
 }
 
-function startLevel(i) {
+// c: the challenge being played, if any. Its deaths and time so far on this level carry over, so leaving
+// halfway and coming back doesn't wipe the slate.
+function startLevel(i, c = null) {
+  chal = c;
   loadLevel(i);
-  runDeaths = 0; runTime = 0; deadT = 0; acc = 0; replaying = null;
+  runDeaths = c ? c.rec.cur.deaths : 0; runTime = c ? c.rec.cur.time : 0;
+  deadT = 0; acc = 0;
+  const lv = LEVELS[i];
+  replaying = routes[lv.id] ? { inputs: routes[lv.id], at: 0 } : null;
   mode = 'play';
   clearInput();
   for (const id of ['mdlPause', 'mdlResult']) ui.showModal(id, false);
@@ -84,9 +98,9 @@ function startLevel(i) {
   $('hud').hidden = false;
   document.body.classList.add('playing');
   $('btnFakeSkip').hidden = !L.fakeSkip;
-  const lv = LEVELS[i];
-  ui.hud(lv.id, lv.def.name, 0);
-  ui.intro(lv.def.name, lv.def.hint || '');
+  const label = c ? `Challenge ${c.rec.deaths.length + 1}/${CHALLENGE_LEVELS} · ${lv.def.name}` : lv.def.name;
+  ui.hud(lv.id, label, runDeaths);
+  ui.intro(lv.def.name, c ? `Challenge level ${c.rec.deaths.length + 1} of ${CHALLENGE_LEVELS}. Every death counts.` : lv.def.hint || '');
   if (document.body.classList.contains('touch') && innerHeight > innerWidth && !save.tips.rotate) {
     save.tips.rotate = true; persist();
     ui.toast('Turn your phone sideways for a bigger view.', 3500);
@@ -103,6 +117,13 @@ function restart() {
   if (mode === 'pause') resume();
   if (mode !== 'play') return;
   respawn();
+}
+
+// keeps a challenge's in-progress level on the device (deaths are saved as they happen)
+function saveChallengeTime() {
+  if (!chal || mode === 'done') return;
+  chal.rec.cur.time = runTime;
+  persist();
 }
 
 // ---------- the loop ----------
@@ -141,9 +162,7 @@ function drain() {
       case 'pop': sound.pop(); break;
       case 'shoot': sound.shoot(); break;
       case 'bounce': sound.bounce(); break;
-      case 'pop-spike': break;
       case 'bonk': sound.bonk(); break;
-      case 'doorstop': break;
       case 'win': sound.win(); break;
       case 'trap':
         if (ev.kind === 'fall') sound.fall();
@@ -163,6 +182,7 @@ function onDeath(cause) {
   sound.die();
   runDeaths++; save.deaths++;
   levelSave(LEVELS[idx].id).deaths++;
+  if (chal) { chal.rec.cur.deaths = runDeaths; chal.rec.cur.time = runTime; }
   persist();
   ui.bumpDeaths(runDeaths);
   if (save.settings.haptics && navigator.vibrate) navigator.vibrate(40);
@@ -176,6 +196,8 @@ function onDeath(cause) {
 
 function finish() {
   mode = 'done'; replaying = null;
+  document.body.classList.remove('playing');
+  if (chal) { challengeLevelDone(); return; }
   const lv = LEVELS[idx], ls = levelSave(lv.id);
   const firstClear = !ls.cleared;
   ls.cleared = true;
@@ -183,7 +205,6 @@ function finish() {
   ls.time = ls.time === null ? runTime : Math.min(ls.time, runTime);
   save.stats.clears++; save.stats.seconds += runTime;
   persist();
-  document.body.classList.remove('playing');
 
   const chLevels = CHAPTER_LEVELS[lv.ch].length, lastOfChapter = lv.i === chLevels - 1, lastOfGame = idx === LEVELS.length - 1;
   $('resEyebrow').textContent = `Level ${lv.id} cleared`;
@@ -195,38 +216,71 @@ function finish() {
   else if (lastOfChapter) note = `Next up: ${CHAPTERS[lv.ch + 1].name}. ${CHAPTERS[lv.ch + 1].blurb}.`;
   else if (!firstClear && runDeaths <= ls.best) note = `Your best here: ${ls.best} ${ls.best === 1 ? 'death' : 'deaths'}.`;
   $('resNote').textContent = note;
+  $('btnNext').textContent = 'Next level';
   $('btnNext').hidden = lastOfGame;
+  $('btnReplay').hidden = false; $('btnResLevels').hidden = false;
   $('btnShare').hidden = !(lastOfChapter || lastOfGame);
   setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
 }
 
+// A challenge level is recorded straight away (so closing the game on the result card loses nothing). Beating it
+// here doesn't count toward the campaign: it could unlock levels out of order.
+function challengeLevelDone() {
+  const rec = chal.rec;
+  rec.deaths.push(runDeaths);
+  rec.times.push(Math.round(runTime * 10) / 10);
+  rec.cur = { deaths: 0, time: 0 };
+  save.stats.clears++; save.stats.seconds += runTime;
+  persist();
+  const k = rec.deaths.length, done = Compete.finished(rec);
+  const total = rec.deaths.reduce((a, b) => a + b, 0);
+  $('resEyebrow').textContent = `Challenge · level ${k} of ${CHALLENGE_LEVELS}`;
+  $('resTitle').textContent = done ? (total === 0 ? 'Flawless. Disgusting.' : 'Survived. Barely.') : CLEAR_LINES.find(([n]) => runDeaths <= n)[1];
+  $('resDeaths').textContent = runDeaths;
+  $('resTime').textContent = runTime.toFixed(1);
+  const nextId = rec.levels[k];
+  $('resNote').textContent = done ? `${total} ${total === 1 ? 'death' : 'deaths'} in total. Let’s see who won.`
+    : `Next: ${nextId} · ${LEVELS[levelIndex(nextId)].def.name}`;
+  $('btnNext').textContent = done ? 'See who won' : 'Next level';
+  $('btnNext').hidden = false;
+  $('btnReplay').hidden = true; $('btnResLevels').hidden = true; $('btnShare').hidden = true;
+  setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+}
+
 // ---------- menus ----------
-function goTitle() {
-  mode = 'menu';
+function toMenu() {
+  saveChallengeTime();
+  mode = 'menu'; chal = null; replaying = null;
   document.body.classList.remove('playing');
   $('hud').hidden = true;
   for (const id of ['mdlPause', 'mdlResult']) ui.showModal(id, false);
-  ui.renderTitle();
-  ui.showScreen('scrTitle');
   ui.hideIntro();
+  chToken++; liveNudge = null; // stops any live challenge refresh
+}
+
+function goTitle() {
+  toMenu();
+  ui.renderTitle();
+  $('btnCompete').hidden = !Compete.available();
+  ui.showScreen('scrTitle');
+  refreshCompeteBadge();
 }
 
 function goLevels() {
-  mode = 'menu';
-  document.body.classList.remove('playing');
-  $('hud').hidden = true;
-  for (const id of ['mdlPause', 'mdlResult']) ui.showModal(id, false);
+  toMenu();
   ui.renderLevels(idx, i => { sound.click(); startLevel(i); });
   ui.showScreen('scrLevels');
-  ui.hideIntro();
 }
 
 function pause() {
   if (mode !== 'play') return;
+  saveChallengeTime();
   mode = 'pause';
   clearInput();
   document.body.classList.remove('playing');
-  $('pauseSub').textContent = `Level ${LEVELS[idx].id} · ${runDeaths} ${runDeaths === 1 ? 'death' : 'deaths'} so far`;
+  const d = `${runDeaths} ${runDeaths === 1 ? 'death' : 'deaths'} so far`;
+  $('pauseSub').textContent = chal ? `Challenge level ${chal.rec.deaths.length + 1} of ${CHALLENGE_LEVELS} · ${d}` : `Level ${LEVELS[idx].id} · ${d}`;
+  $('btnPauseLevels').textContent = chal ? 'Leave challenge' : 'All levels';
   ui.renderPauseQuick(onSetting);
   ui.showModal('mdlPause');
 }
@@ -239,6 +293,12 @@ function resume() {
 }
 
 function next() {
+  if (chal) {
+    const c = chal;
+    if (Compete.finished(c.rec)) openChallenge(c.id);
+    else startLevel(levelIndex(c.rec.levels[c.rec.deaths.length]), c);
+    return;
+  }
   const n = idx + 1;
   if (n < LEVELS.length && isUnlocked(n)) startLevel(n);
   else goLevels();
@@ -256,6 +316,161 @@ async function share() {
   catch { ui.toast(full, 6000); }
 }
 
+// ---------- challenges ----------
+let chToken = 0, liveNudge = null, picked = [], creating = false;
+
+// Keeps a challenge view live: re-runs `refresh` (which resolves true when something changed) every few seconds
+// while that screen is showing, easing off after a minute without news, and pausing while the game is hidden.
+// Navigating away (which bumps chToken) or starting to play (which hides the screen) stops it.
+const LIVE_FAST = 4000, LIVE_SLOW = 12000, LIVE_QUIET = 15;
+function keepFresh(t, screenId, refresh) {
+  let quiet = 0;
+  const tick = async () => {
+    if (t !== chToken || $(screenId).hidden) return;
+    if (!document.hidden) quiet = (await refresh().catch(() => false)) ? 0 : quiet + 1;
+    if (t === chToken) setTimeout(tick, quiet > LIVE_QUIET ? LIVE_SLOW : LIVE_FAST);
+  };
+  setTimeout(tick, LIVE_FAST);
+}
+
+const names = list => (list.length <= 2 ? list.join(' and ') : `${list.slice(0, 2).join(', ')} and ${list.length - 2} more`);
+function competeList(summaries = []) {
+  const byId = Object.fromEntries(summaries.map(x => [x.id, x]));
+  return Compete.recent().map(([id, rec]) => {
+    const x = byId[id], k = rec.deaths.length;
+    const others = !x || x.gone ? '' : x.joined.length ? `${names(x.joined)} joined · ${x.done} finished` : 'Nobody has joined yet';
+    const you = !Compete.finished(rec) ? (k || rec.cur.deaths ? `You’re on level ${k + 1} of ${CHALLENGE_LEVELS}` : 'You haven’t played yet')
+      : !rec.sent ? 'You finished · score not sent yet'
+      : `You died ${Compete.totalDeaths(rec)} times${x?.rank && x.of > 1 ? ` · ${ui.ordinal(x.rank)} of ${x.of}` : ''}`;
+    return { id, title: rec.by ? `${rec.by}’s challenge` : 'Your challenge', others, you, fresh: !!x?.fresh };
+  });
+}
+
+// Badge on the title screen's button when someone has joined or finished one of your challenges.
+function refreshCompeteBadge() {
+  if (!Compete.available() || !Compete.recent().length) { ui.competeBadge(0); return; }
+  const t = ++chToken;
+  let lastN = -1;
+  const check = async () => {
+    const n = (await Compete.fetchSummaries()).filter(x => x.fresh).length;
+    if (t !== chToken || n === lastN) return false;
+    lastN = n; ui.competeBadge(n);
+    return true;
+  };
+  check().catch(() => {});
+  keepFresh(t, 'scrTitle', check);
+  liveNudge = () => { if (t === chToken) check().catch(() => {}); };
+}
+
+function openCompete() {
+  toMenu();
+  ui.showScreen('scrCompete');
+  const t = ++chToken;
+  let stats = null, sums = [], lastKey = '';
+  const draw = () => { if (t === chToken) ui.renderCompete(stats, competeList(sums), id => { sound.click(); openChallenge(id); }); };
+  const loadStats = () => Compete.fetchStats().then(x => { stats = x; draw(); }, e => { stats = stats || { error: e.message }; draw(); });
+  const loadSums = async () => {
+    sums = await Compete.fetchSummaries();
+    const key = JSON.stringify(sums);
+    if (key === lastKey) return false;
+    if (lastKey) loadStats(); // someone finished or joined: the record may have moved too
+    lastKey = key; draw();
+    return true;
+  };
+  draw();
+  loadStats(); loadSums().catch(() => {});
+  keepFresh(t, 'scrCompete', loadSums);
+  liveNudge = () => { if (t === chToken) loadSums().catch(() => {}); };
+}
+
+function needName(fieldId) {
+  if (save.player.name.trim()) return false;
+  ui.toast('Add your name first');
+  $(fieldId)?.focus();
+  return true;
+}
+
+function openPicker() {
+  if (needName('cmpName')) return;
+  toMenu();
+  picked = [];
+  const draw = () => ui.renderPicker(picked, id => {
+    sound.click();
+    if (picked.includes(id)) picked = picked.filter(x => x !== id);
+    else if (picked.length < CHALLENGE_LEVELS) picked.push(id);
+    else ui.toast('That’s 3. Tap one to swap it out.');
+    draw();
+  });
+  draw();
+  ui.showScreen('scrPick');
+}
+
+async function createFromPick() {
+  if (creating || picked.length !== CHALLENGE_LEVELS) return;
+  creating = true;
+  toMenu();
+  ui.showScreen('scrChallenge');
+  const t = ++chToken;
+  ui.renderChallenge({ message: 'Setting the trap…' }, handlers);
+  // a new challenge opens on its invite screen: send it now, play your own levels whenever you like
+  try { const ch = await Compete.createChallenge(picked); if (t === chToken) showChallenge(ch, t); }
+  catch (e) { if (t === chToken) ui.renderChallenge({ error: e.message }, handlers); }
+  finally { creating = false; }
+}
+
+async function openChallenge(id) {
+  toMenu();
+  ui.showScreen('scrChallenge');
+  const t = ++chToken;
+  ui.renderChallenge({ message: 'Loading challenge…' }, handlers);
+  try {
+    const rec = Compete.progress(id);
+    const view = rec && Compete.finished(rec) && !rec.sent ? await Compete.submitScore(id) : await Compete.fetchChallenge(id);
+    if (t === chToken) showChallenge(view, t);
+  } catch (e) { if (t === chToken) ui.renderChallenge({ error: e.message, id, gone: e.status === 404 }, handlers); }
+}
+
+function showChallenge(view, t) {
+  let shown = '';
+  const draw = v => {
+    const key = JSON.stringify([v.players, v.playing]);
+    // no news, or the player is typing their name: leave the screen alone (it redraws on the next change)
+    if (key === shown || document.querySelector('#chBody input:focus')) return false;
+    shown = key;
+    ui.renderChallenge({ view: v, local: Compete.progress(v.id), playable: Compete.playable(v), link: Compete.link(v.id) }, handlers);
+    Compete.markSeen(v);
+    return true;
+  };
+  draw(view);
+  const refresh = async () => { const v = await Compete.fetchChallenge(view.id); return t === chToken && draw(v); };
+  keepFresh(t, 'scrChallenge', refresh);
+  liveNudge = () => { if (t === chToken) refresh().catch(() => {}); };
+}
+
+function playChallenge(view) {
+  if (needName('chName')) return;
+  const rec = Compete.track(view);
+  if (!rec.joined) Compete.joinChallenge(view.id).then(() => { rec.joined = true; persist(); }, () => {}); // tells the creator
+  if (Compete.finished(rec)) { openChallenge(view.id); return; }
+  startLevel(levelIndex(view.levels[rec.deaths.length]), { id: view.id, rec });
+}
+
+async function shareChallenge(view) {
+  const r = await Compete.share(view);
+  if (r === 'copied') ui.toast('Link copied. Send it to your victim.');
+  else if (r === 'failed') ui.toast('Couldn’t share. Copy the link under the button instead.');
+}
+
+const handlers = {
+  open: openChallenge,
+  compete: openCompete,
+  newChallenge: () => { sound.click(); openPicker(); },
+  play: v => { sound.click(); playChallenge(v); },
+  share: v => { sound.click(); shareChallenge(v); },
+  setName: v => { save.player.name = v.trim().slice(0, 16); persist(); },
+};
+
+// ---------- settings and keys ----------
 function onSetting(key) {
   persist();
   if (key === 'sound' || key === 'music') applyAudio();
@@ -264,7 +479,7 @@ function onSetting(key) {
 }
 
 function onKey(e) {
-  if (e.repeat) return;
+  if (e.repeat || e.target.closest?.('input, textarea')) return;
   const k = e.code;
   if (mode === 'play') {
     if (k === 'Escape' || k === 'KeyP') pause();
@@ -273,34 +488,55 @@ function onKey(e) {
     if (k === 'Escape' || k === 'KeyP') resume();
   } else if (mode === 'done' && !$('mdlResult').hidden) {
     if (k === 'Enter' || k === 'Space') { e.preventDefault(); if (!$('btnNext').hidden) next(); }
-    else if (k === 'KeyR') startLevel(idx);
+    else if (k === 'KeyR' && !chal) startLevel(idx);
   } else if (mode === 'menu' && k === 'Escape' && $('scrTitle').hidden) goTitle();
+}
+
+// a second tap within a few seconds confirms (no system dialog: they're blocked when the game is embedded)
+function twoTap(id, label, armed, fn) {
+  let at = 0;
+  $(id).addEventListener('click', () => {
+    sound.click();
+    const b = $(id);
+    if (Date.now() - at > 4000) {
+      at = Date.now(); b.textContent = armed;
+      setTimeout(() => { if (Date.now() - at >= 4000) b.textContent = label; }, 4100);
+      return;
+    }
+    at = 0; b.textContent = label;
+    fn();
+  });
 }
 
 function wireButtons() {
   const on = (id, fn) => $(id).addEventListener('click', () => { sound.click(); fn(); });
   on('btnPlay', () => startLevel(nextUnplayed()));
   on('btnLevels', goLevels);
-  on('btnSettings', () => { ui.renderSettings(onSetting); ui.showScreen('scrSettings'); });
+  on('btnCompete', openCompete);
+  on('btnSettings', () => {
+    ui.renderSettings(onSetting);
+    $('btnForget').hidden = !Compete.available();
+    ui.showScreen('scrSettings');
+  });
   for (const b of document.querySelectorAll('[data-back]')) b.addEventListener('click', () => { sound.click(); goTitle(); });
-  // a second tap within a few seconds confirms (no system dialog: they're blocked when the game is embedded)
-  let resetArmed = 0;
-  on('btnReset', () => {
-    const b = $('btnReset');
-    if (Date.now() - resetArmed > 4000) {
-      resetArmed = Date.now(); b.textContent = 'Tap again to wipe everything';
-      setTimeout(() => { if (Date.now() - resetArmed >= 4000) b.textContent = 'Reset progress'; }, 4100);
-      return;
-    }
-    resetArmed = 0; b.textContent = 'Reset progress';
+  twoTap('btnReset', 'Reset progress', 'Tap again to wipe everything', () => {
     resetSave(); setSwap(false); applyAudio(); ui.renderSettings(onSetting); loadLevel(0, true);
     ui.toast('Fresh start. The levels remember nothing. Unlike you.');
   });
+  twoTap('btnForget', 'Delete my challenge data', 'Tap again to delete it from our server', async () => {
+    try { await Compete.forgetMe(); ui.toast('Deleted. Your challenge scores are gone from our server.'); }
+    catch (e) { ui.toast(e.message); }
+  });
+  on('btnNewChallenge', openPicker);
+  on('btnPickBack', openCompete);
+  on('btnCreate', createFromPick);
+  on('btnChBack', openCompete);
+  $('cmpName').addEventListener('input', e => handlers.setName(e.target.value));
   on('btnPause', pause);
   on('btnRestart', restart);
   on('btnResume', resume);
   on('btnPauseRestart', () => { resume(); restart(); });
-  on('btnPauseLevels', goLevels);
+  on('btnPauseLevels', () => (chal ? openChallenge(chal.id) : goLevels()));
   on('btnPauseHome', goTitle);
   on('btnReplay', () => startLevel(idx));
   on('btnResLevels', goLevels);

@@ -55,6 +55,7 @@
     <button class="btn big" id="btnPlay"><span id="playLabel">Play</span><small id="playSub">Level 1-1</small></button>
     <div class="row-btns">
       <button class="btn ghost" id="btnLevels" data-icon="grid"><span>Levels</span></button>
+      <button class="btn ghost versus" id="btnCompete" data-icon="versus" hidden><span>Ragebait a friend</span><b class="badge" id="competeBadge" hidden></b></button>
       <button class="btn ghost" id="btnSettings" data-icon="gear"><span>Settings</span></button>
     </div>
     <p class="stat-line" id="statLine"></p>
@@ -66,11 +67,36 @@
   <div class="chapters" id="chapterList"></div>
 </section>
 
+<section class="screen" id="scrCompete" hidden>
+  <header class="scr-head narrow"><button class="sq-btn" data-back aria-label="Back" data-icon="back"></button><h2>Ragebait a friend</h2><span class="head-stat"></span></header>
+  <div class="compete">
+    <div class="record" id="cmpRecord" aria-live="polite"></div>
+    <label class="name-field"><span>Your name</span><input id="cmpName" maxlength="16" autocomplete="nickname" enterkeyhint="done" placeholder="Shown on the scoreboard"></label>
+    <button class="btn big" id="btnNewChallenge">New challenge</button>
+    <p class="fine">Pick 3 levels you’ve beaten and send the link. You both play them; fewest deaths wins.</p>
+    <h3 class="list-title">Your challenges</h3>
+    <div class="ch-list" id="cmpList"></div>
+  </div>
+</section>
+
+<section class="screen" id="scrPick" hidden>
+  <header class="scr-head"><button class="sq-btn" id="btnPickBack" aria-label="Back" data-icon="back"></button><h2>Pick 3 levels</h2><span class="head-stat" id="pickStat"></span></header>
+  <p class="pick-note" id="pickNote">Choose the ones you think will hurt most. They play in the order you pick them.</p>
+  <div class="chapters" id="pickList"></div>
+  <div class="pick-bar"><button class="btn big" id="btnCreate" disabled>Create challenge</button></div>
+</section>
+
+<section class="screen" id="scrChallenge" hidden>
+  <header class="scr-head narrow"><button class="sq-btn" id="btnChBack" aria-label="Back" data-icon="back"></button><h2>Challenge</h2><span class="head-stat"></span></header>
+  <div class="compete" id="chBody"></div>
+</section>
+
 <section class="screen" id="scrSettings" hidden>
   <header class="scr-head"><button class="sq-btn" data-back aria-label="Back" data-icon="back"></button><h2>Settings</h2><span class="head-stat"></span></header>
   <div class="settings" id="settingsList"></div>
   <div class="settings-foot">
     <button class="btn ghost danger" id="btnReset">Reset progress</button>
+    <button class="btn ghost danger" id="btnForget" hidden>Delete my challenge data</button>
     <p class="fine">Progress is saved on this device.</p>
     <p class="fine page-links"><a href="./about">About &amp; how to play</a> · <a href="./privacy">Privacy</a></p>
   </div>

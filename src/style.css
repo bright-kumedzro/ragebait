@@ -205,3 +205,81 @@ body.swap .pads { flex-direction: row-reverse; }
   .taunt.show { animation-name: taunt-fade; }
   .fake-skip, .logo.shake, .card { animation: none; }
 }
+
+/* ---------- challenges ---------- */
+.btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: 0 2px 0 var(--ink); transform: none; }
+.btn.versus { position: relative; }
+.badge {
+  position: absolute; top: -10px; right: -8px; min-width: 22px; padding: 3px 7px; border-radius: 99px;
+  background: var(--ink); color: var(--paper); font-family: var(--font-body); font-weight: 800; font-size: 12px; line-height: 1.2;
+  animation: bump 0.6s ease 2;
+}
+.scr-head.narrow, #scrChallenge .scr-head { max-width: 560px; }
+.compete { display: flex; flex-direction: column; gap: 14px; max-width: 560px; width: 100%; align-self: center; }
+.compete .btn { width: 100%; }
+.record, .ch-row, .board li, .name-field {
+  background: var(--paper); color: var(--text); border: 3px solid var(--solid); border-radius: 10px; box-shadow: 0 4px 0 var(--ink);
+}
+.record { padding: 12px 10px; text-align: center; }
+.rec-cells { display: grid; grid-template-columns: repeat(3, 1fr); }
+.rec-cells div { display: flex; flex-direction: column; align-items: center; }
+.rec-cells b { font-family: var(--font-display); font-weight: 400; font-size: 30px; line-height: 1.1; color: var(--solid); font-variant-numeric: tabular-nums; }
+.rec-cells span { font-weight: 800; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
+.rec-note { margin: 6px 0 0; font-weight: 700; font-size: 14px; opacity: 0.8; }
+.name-field { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 12px; }
+.name-field span { font-weight: 800; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+.name-field input {
+  border: 0; outline: 0; background: transparent; color: var(--text); padding: 2px 0; width: 100%;
+  font-family: var(--font-display); font-size: 22px; -webkit-user-select: text; user-select: text;
+}
+.name-field input::placeholder { font-family: var(--font-body); font-weight: 700; font-size: 16px; color: var(--text); opacity: 0.45; }
+.name-field:focus-within { outline: 3px solid var(--ink); outline-offset: 2px; }
+.list-title { margin: 10px 0 0; font-family: var(--font-display); font-weight: 400; font-size: 20px; color: var(--solid); }
+.ch-list { display: flex; flex-direction: column; gap: 10px; }
+.ch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 14px; cursor: pointer; text-align: left; font: inherit; }
+.ch-row strong { display: block; font-family: var(--font-display); font-weight: 400; font-size: 18px; color: var(--solid); }
+.ch-row small { display: block; font-weight: 700; font-size: 13px; opacity: 0.8; margin-top: 2px; }
+.ch-row svg { width: 20px; height: 20px; flex: none; color: var(--solid); }
+.ch-row em, .board .who em {
+  margin-left: 8px; padding: 1px 7px; border-radius: 99px; background: var(--ink); color: var(--paper);
+  font-family: var(--font-body); font-style: normal; font-weight: 800; font-size: 11px; vertical-align: 3px;
+}
+.ch-row.fresh { outline: 3px dashed var(--ink); outline-offset: 3px; }
+.ch-msg { margin: 24px 0 0; font-weight: 800; font-size: 17px; text-align: center; }
+.ch-head { margin: -4px 0 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(26px, 6vw, 36px); line-height: 1.05; color: var(--solid); text-wrap: balance; }
+.ch-levels { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.ch-levels li {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 5px; border-radius: 99px;
+  background: var(--solid); color: var(--paper); font-weight: 800; font-size: 13px;
+}
+.ch-levels b { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--paper); color: var(--solid); font-size: 12px; }
+.ch-status { margin: 0; font-weight: 800; font-size: 14px; opacity: 0.8; }
+.board { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.board li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.board li.you { outline: 3px solid var(--ink); outline-offset: 2px; }
+.board li.playing { opacity: 0.75; }
+.board .rank {
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 15%, var(--paper)); font-family: var(--font-display); font-size: 15px;
+}
+.board li:first-child:not(.playing) .rank { background: var(--solid); color: var(--paper); }
+.board .who { flex: 1; min-width: 0; font-family: var(--font-display); font-size: 18px; overflow-wrap: anywhere; }
+.board .who small { display: block; font-family: var(--font-body); font-weight: 700; font-size: 12px; opacity: 0.75; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.board b { display: flex; align-items: center; gap: 4px; font-family: var(--font-display); font-weight: 400; font-size: 24px; font-variant-numeric: tabular-nums; }
+.board b svg { width: 18px; height: 18px; opacity: 0.8; }
+.ch-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+.ch-link { margin: -4px 0 0; font-weight: 700; font-size: 13px; text-align: center; opacity: 0.8; overflow-wrap: anywhere; -webkit-user-select: all; user-select: all; }
+
+.pick-note { margin: 0 0 14px; max-width: 900px; width: 100%; align-self: center; font-weight: 700; font-size: 14px; opacity: 0.85; }
+#scrPick .chapters { padding-bottom: 90px; }
+.lvl.pick small { max-width: 100%; padding: 0 4px; font-size: 10px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.lvl .order {
+  position: absolute; top: -9px; left: -7px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--c-ink); color: var(--c-air); font-family: var(--font-display); font-style: normal; font-size: 13px;
+}
+.pick-bar {
+  position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+  padding: 12px var(--gutter-r) calc(var(--safe-b) + 14px) var(--gutter-l);
+  background: linear-gradient(to top, var(--paper) 60%, color-mix(in srgb, var(--paper) 0%, transparent));
+}
+.pick-bar .btn { width: min(420px, 100%); }

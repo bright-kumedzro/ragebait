@@ -6,13 +6,14 @@ A troll platformer for the browser and phones. Run, jump, reach the door. Every 
 - **Traps**: collapsing and crumbling floors, hidden spikes, ball trains and bouncing cannonballs, slamming ceilings, rising pillars, ferries that sink, spike walls that chase you, runaway doors, fake doors with teeth, invisible blocks you bonk, invisible bridges, swapped controls, flipped gravity, and a "Skip level" button that kills you.
 - **Feel**: a death counter that never resets, a taunt for every death, faint marks where you died, screen shake, particles, synthesised sound effects and a chiptune loop per chapter.
 - **Controls**: arrows or A/D and Space/W/↑ on a keyboard (R restarts, Esc pauses); on phones, thumb zones around on-screen buttons, with an option to put jump on the left. Landscape first; portrait works with a smaller view.
-- No accounts, no server, no tracking. Progress is saved on the device.
+- **Ragebait a friend**: pick 3 levels you've beaten and send the link. You both play the same 3 levels whenever you like; fewest deaths wins, and time breaks ties. Leaving halfway keeps your deaths. The challenge screen updates live (who accepted, who finished, "You ragebaited Kofi"), the title button shows a badge when there's news, and each device keeps a win record. No accounts: players type a nickname and each device has an anonymous ID.
+- No tracking. Campaign progress is saved on the device; only challenges touch the server.
 
 ## Run it
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173, also reachable from a phone on the same Wi-Fi
+npm run dev        # http://localhost:5173, also reachable from a phone on the same Wi-Fi; serves api/ with an in-memory store
 npm run build      # production build in dist/ (works offline and installs as a PWA)
 npm run preview    # serve dist/ locally
 ```
@@ -22,7 +23,8 @@ npm run preview    # serve dist/ locally
 | Command | What it does |
 | --- | --- |
 | `npm run check` | Proves every level can be beaten: a search over held inputs, run on the real sim, has to reach the door. Also catches map typos (uneven rows, unknown characters, traps naming groups or marks that aren't on the map). Pass level ids to check only those: `node scripts/check-levels.mjs 2-3 3-10`. Run it after editing levels. Takes about a minute. |
-| `node scripts/smoke-test.mjs` | Runs `dist/` in your installed Chrome, headless. It expects Chrome at the default Windows path; elsewhere, set `CHROME_PATH`. Fails on console errors; beats level 1 with the checker's route on a phone, a desktop and a portrait screen; checks the touch buttons steer and jump; opens the pause, level and settings screens; and screenshots every level to `artifact/shots/levels/`. Run `npm run build` first. |
+| `node scripts/smoke-test.mjs` | Runs `dist/` in your installed Chrome, headless. It expects Chrome at the default Windows path; elsewhere, set `CHROME_PATH`. Fails on console errors; beats level 1 with the checker's route on a phone, a desktop and a portrait screen; checks the touch buttons steer and jump; opens the pause, level and settings screens; plays a whole challenge between two players with separate saves (create, pick 3 levels, play them, open the invite link, die once, lose, and check both sides see the right result and the win record); and screenshots every level to `artifact/shots/levels/`. Run `npm run build` first. |
+| `node scripts/test-api.mjs` | Tests the challenge API against the in-memory store: validation, one score per player, ranking, win records, deleting a player's data and the share page. Run it after changing `api/`. |
 | `node scripts/make-og.mjs` | Redraws `public/og.png`, the link-preview image, from the real game. Run `npm run build` first. |
 | `npm run build:artifact` | Bundles everything into `artifact/ragebait.html`, a single self-contained page for a shareable claude.ai preview. |
 
@@ -40,12 +42,17 @@ src/
   input.js         keyboard and touch, merged into one { left, right, jump }
   audio.js         WebAudio sound effects and the chiptune loops
   ui.js            menus, HUD, toasts and icons (DOM)
-  game.js          game flow: levels, deaths, respawns, wins, saving
+  game.js          game flow: levels, deaths, respawns, wins, challenges, saving
+  compete.js       challenge API calls, anonymous player ID, local challenge progress, sharing
   save.js          localStorage progress
   tokens.css       palette and type shared by the game (style.css) and the pages (page.css)
 about.html         /about: how to play, chapters, installing
 privacy.html       /privacy: what's stored (only local progress)
 404.html           "Fell through the floor" page Vercel serves for unknown addresses
+api/               Vercel functions
+  challenge.js     create a challenge, join it, post a score, read a scoreboard or a player's win record, delete a player's data
+  share.js         /c/<id> share page with Open Graph tags ("Ama is trying to ragebait you"), which forwards to the game
+  _lib/            challenge rules and the Redis store (in-memory when there's no database)
 ```
 
 ## Adding a level
@@ -121,9 +128,13 @@ The name appears in `GAME_NAME` (`src/config.js`), the `<title>`s in the HTML fi
 
 ## Deploying
 
-It's live at [playragebait.vercel.app](https://playragebait.vercel.app), deployed by Vercel on every push to `main`. The game is a static site with no backend, so it scales to any number of players. `vercel.json` sets the Vite build, the `dist/` output and the cache headers (hashed files in `assets/` are cached for a year, `sw.js` and the manifest are checked on every visit).
+It's live at [playragebait.vercel.app](https://playragebait.vercel.app), deployed by Vercel on every push to `main`. The game itself is static files on Vercel's CDN; only challenges use the two small functions in `api/`, which scale automatically. `vercel.json` sets the Vite build, the `dist/` output and the cache headers (hashed files in `assets/` are cached for a year, `sw.js` and the manifest are checked on every visit).
 
 The service worker loads the page network-first, so players get a new deploy on their next visit, and falls back to the cache when offline. The build stamps the cache name in `dist/sw.js` with a hash of the output (see `vite.config.js`), so each deploy gets a fresh cache and the old one is deleted.
+
+Challenges are stored in Redis on [Upstash](https://upstash.com). Vercel needs `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` set as environment variables (or the `KV_REST_API_URL` and `KV_REST_API_TOKEN` pair that Vercel's Upstash integration adds). Without them, the API answers 503 and the rest of the game still works. Every key starts with `rb:`, so the database can be shared with another project. The functions run in Vercel's London region (`lhr1` in `vercel.json`); move it next to wherever the database lives. Challenges and win records expire after a year.
+
+Each challenge stores a fingerprint of its 3 levels (`levelHash` in `src/levels/index.js`). If you change a level, older challenges that use it say so instead of comparing deaths on two different levels.
 
 `/about` and `/privacy` are extra Vite pages (see `build.rollupOptions.input`), served without `.html` by `cleanUrls`. If you change what the game stores, update `privacy.html` and its date.
 
