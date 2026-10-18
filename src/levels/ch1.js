@@ -96,10 +96,12 @@ export default [
   {
     name: 'Keep your head down',
     hint: 'Little hops.',
-    // the first jump fills the ceiling with spikes: from then on, only short hops are safe
+    // the first jump fills the ceiling with spikes: from then on, a held jump hits them and only taps are safe.
+    // The ceiling is high enough that a normal tap (about 40–170 ms) clears the bumps without reaching it.
     map: `
       ################################
       11111111111111111111111111111111
+      ................................
       ................................
       .P........#......##.....#....D..
       ################################
