@@ -1,0 +1,9 @@
+node_modules
+dist
+artifact
+
+# reference clips from the brief: large, and not ours to redistribute
+*.mp4
+
+.vercel
+.env*

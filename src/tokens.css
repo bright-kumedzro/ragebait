@@ -1,0 +1,19 @@
+/* Design tokens shared by the game (style.css) and the About and Privacy pages (page.css).
+   The palette colours are swapped per chapter by script (see CHAPTERS in config.js). */
+:root {
+  --air: #F7DFAE;          /* open space, and the paper menus are printed on */
+  --solid: #D9503F;        /* walls, floors, hazards, buttons */
+  --ink: #161010;          /* the runner and dark text */
+  --door: #BDB5AD;
+  --ui: #7A2A20;           /* HUD buttons and text drawn straight on --air */
+  --paper: #F7DFAE;        /* menu cards and screens */
+  --text: #161010;         /* text on --paper */
+  --scrim: rgba(22, 16, 16, 0.45);
+  --font-display: "Bungee", "Arial Black", Impact, sans-serif;
+  --font-body: "Rubik", "Segoe UI", system-ui, sans-serif;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  color-scheme: light;
+}

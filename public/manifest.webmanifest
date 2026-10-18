@@ -1,0 +1,15 @@
+{
+  "name": "Ragebait",
+  "short_name": "Ragebait",
+  "description": "A platformer where every level lies to you.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#F7DFAE",
+  "theme_color": "#F7DFAE",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

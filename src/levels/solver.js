@@ -1,0 +1,101 @@
+// Finds a way through a level by searching over held inputs, using the real sim. Used by
+// scripts/check-levels.mjs to prove every level can be beaten, and by the smoke test to play one in the browser.
+import { createState, step, cloneState } from '../sim.js';
+import { STEP, RUN, PLAYER_W, PLAYER_H } from '../config.js';
+
+// Each search move holds one of these for `chunk` steps. j held across two moves is one long jump, not two.
+export const ACTIONS = [
+  { l: 0, r: 1, j: 0 }, { l: 0, r: 1, j: 1 }, { l: 0, r: 0, j: 0 },
+  { l: 0, r: 0, j: 1 }, { l: 1, r: 0, j: 0 }, { l: 1, r: 0, j: 1 },
+];
+
+class Heap {
+  constructor() { this.a = []; }
+  get size() { return this.a.length; }
+  push(n) {
+    const a = this.a; a.push(n);
+    for (let i = a.length - 1; i > 0;) { const p = (i - 1) >> 1; if (a[p].f <= a[i].f) break; [a[p], a[i]] = [a[i], a[p]]; i = p; }
+  }
+  pop() {
+    const a = this.a, top = a[0], last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      for (let i = 0; ;) {
+        const l = i * 2 + 1, r = l + 1; let m = i;
+        if (l < a.length && a[l].f < a[m].f) m = l;
+        if (r < a.length && a[r].f < a[m].f) m = r;
+        if (m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m;
+      }
+    }
+    return top;
+  }
+}
+
+function key(L, s) {
+  const p = s.p, q = v => Math.round(v * 4);
+  const dynamic = s.pending.length || s.balls.length || s.spawners.some(x => !x.done) || s.door.x !== s.door.tx || s.door.y !== s.door.ty
+    || s.movers.some(m => !m.gone && !(m.kind === 'move' && m.done)) || L.timed;
+  return [q(p.x), q(p.y), Math.round(p.vx / 3), Math.round(p.vy / 4), p.ground ? 1 : 0, p.jHeld ? 1 : 0, s.grav, s.rev ? 1 : 0,
+    s.fired.join(''), s.revealed, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
+}
+
+// Runs `steps` of one action. Returns the state's status.
+function advance(L, s, a, steps) {
+  for (let k = 0; k < steps; k++) {
+    const st = step(L, s, a);
+    s.events.length = 0;
+    if (st !== 'play') return st;
+  }
+  return 'play';
+}
+
+export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3 } = {}) {
+  L.timed ??= L.traps.some(t => t.when.t !== undefined || t.loop || t.every);
+  const perChunk = RUN * chunk * STEP;
+  const h = s => {
+    const dx = s.door.tx + 0.4 - (s.p.x + PLAYER_W / 2), dy = s.door.ty + 0.7 - (s.p.y + PLAYER_H / 2); // where the door is going
+    // Traps usually fire as you make progress, and one can send the door far away; without the credit, every
+    // state after a trap looks worse than all the states before it and the search drowns in those.
+    const fired = s.fired.reduce((n, f) => n + (f === 2), 0);
+    return (Math.abs(dx) + Math.abs(dy) * 0.6) / perChunk - fired * 25;
+  };
+  const start = createState(L);
+  const open = new Heap(), seen = new Set([key(L, start)]);
+  open.push({ s: start, g: 0, f: h(start), parent: null, a: -1 });
+  let nodes = 0;
+  while (open.size && nodes < maxNodes) {
+    const n = open.pop();
+    nodes++;
+    for (let ai = 0; ai < ACTIONS.length; ai++) {
+      const c = cloneState(n.s);
+      const st = advance(L, c, ACTIONS[ai], chunk);
+      if (st === 'dead') continue;
+      const node = { s: c, g: n.g + 1, parent: n, a: ai };
+      if (st === 'won') {
+        const actions = [];
+        for (let x = node; x.parent; x = x.parent) actions.push(x.a);
+        actions.reverse();
+        return { ok: true, actions, chunk, nodes, seconds: actions.length * chunk * STEP };
+      }
+      const k = key(L, c);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      node.f = node.g + weight * h(c);
+      open.push(node);
+    }
+  }
+  return { ok: false, nodes };
+}
+
+// Plays a found route from a fresh start; true if it still wins (it should: the sim is deterministic).
+export function replay(L, actions, chunk) {
+  const s = createState(L);
+  for (const ai of actions) {
+    const st = advance(L, s, ACTIONS[ai], chunk);
+    if (st !== 'play') return st === 'won';
+  }
+  return false;
+}
+
+// The route as one input per sim step, for driving the game in a browser.
+export const toSteps = (actions, chunk) => actions.flatMap(ai => Array(chunk).fill(ACTIONS[ai]));
