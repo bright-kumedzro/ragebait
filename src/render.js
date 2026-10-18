@@ -15,6 +15,7 @@ export function createRenderer(canvas) {
   const parts = [];
   let deathMarks = [];
   let squash = 0, lastFace = 1;
+  let mirrorK = 1, flagWave = 0;        // mirrorK eases between 1 and -1 so a mirror trap flips the view visibly
   let insets = { top: 0, bottom: 0 };   // CSS px the HUD and touch controls cover
 
   function resize() {
@@ -51,7 +52,7 @@ export function createRenderer(canvas) {
   }
 
   function setLevel(level, th) {
-    L = level; theme = th; parts.length = 0; deathMarks = []; shake = 0; flash = 0;
+    L = level; theme = th; parts.length = 0; deathMarks = []; shake = 0; flash = 0; mirrorK = 1;
     fit(true);
   }
 
@@ -110,6 +111,21 @@ export function createRenderer(canvas) {
       ctx.moveTo(X(x + 0.55), Y(y + h - bob)); ctx.lineTo(X(x + 0.55 - ph), Y(y + h + 0.1));
       ctx.stroke();
     }
+  }
+
+  // a checkpoint flag on a pole, waving harder for a moment when you pass it
+  function drawFlag(x, y, t) {
+    const px = x + 0.3, top = y + 1 - 1.7;
+    ctx.fillStyle = theme.solid;
+    ctx.fillRect(X(px), Y(top), Math.max(2, X(px + 0.09) - X(px)), Y(y + 1) - Y(top));
+    const wave = Math.sin(t * (4 + flagWave * 10)) * (0.06 + flagWave * 0.1);
+    ctx.fillStyle = theme.door;
+    ctx.beginPath();
+    ctx.moveTo(X(px + 0.09), Y(top));
+    ctx.quadraticCurveTo(X(px + 0.45), Y(top + 0.2 + wave), X(px + 0.85), Y(top + 0.3 + wave));
+    ctx.lineTo(X(px + 0.09), Y(top + 0.62));
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = theme.solid; ctx.lineWidth = Math.max(1, scale * 0.05); ctx.stroke();
   }
 
   function drawPlayer(s, t) {
@@ -176,7 +192,10 @@ export function createRenderer(canvas) {
       case 'bump': squash = 0.25; break;
       case 'doorstop': burst(ev.x, ev.y, 5, theme.solid, 3, 0.35, 0.1); break;
       case 'win': burst(ev.x, ev.y, 30, theme.door, 9, 1, 0.14); burst(ev.x, ev.y, 14, theme.ink, 7, 0.8, 0.1); break;
-      case 'trap': if (ev.kind === 'fall') shake = Math.max(shake, 0.15); break;
+      case 'trap':
+        if (ev.kind === 'fall') shake = Math.max(shake, 0.15);
+        if (ev.kind === 'checkpoint') { flagWave = 1; for (const f of L.flags) burst(f.x + 0.5, f.y - 0.4, 14, theme.door, 6, 0.8, 0.12); }
+        break;
     }
   }
 
@@ -192,6 +211,10 @@ export function createRenderer(canvas) {
 
     ctx.fillStyle = theme.air;
     ctx.fillRect(0, 0, cw, ch);
+    const mt = s.mirror ? -1 : 1;
+    mirrorK += Math.sign(mt - mirrorK) * Math.min(Math.abs(mt - mirrorK), dt * 8);
+    ctx.save();
+    if (mirrorK !== 1) { ctx.translate(cw / 2, 0); ctx.scale(Math.abs(mirrorK) < 0.04 ? 0.04 * Math.sign(mirrorK || 1) : mirrorK, 1); ctx.translate(-cw / 2, 0); }
 
     // static tiles, merged into runs per row
     const x0 = Math.floor(camX) - 1, x1 = Math.ceil(camX + cw / scale) + 1;
@@ -211,7 +234,7 @@ export function createRenderer(canvas) {
         if (isSpike(c)) spikeShape(cx, cy, c);
       }
     }
-    for (const k of s.spikes) spikeShape(k.x, k.y, k.dir, k.k);
+    for (const k of s.spikes) if (!k.inv) spikeShape(k.x, k.y, k.dir, k.k);
 
     // moving blocks (and their spikes)
     for (const m of s.movers) {
@@ -230,6 +253,8 @@ export function createRenderer(canvas) {
     }
     ctx.globalAlpha = 1;
 
+    flagWave = Math.max(0, flagWave - dt * 0.8);
+    for (const f of L.flags) drawFlag(f.x, f.y, t);
     for (const f of L.fakeDoors) drawDoor(f.x, f.y, false, t, s.cause === 'bite' ? 1 : 0);
     const d = s.door;
     drawDoor(d.x, d.y, d.x !== d.tx || d.y !== d.ty, t);
@@ -258,6 +283,7 @@ export function createRenderer(canvas) {
       ctx.fillRect(X(q.x) - sz / 2, Y(q.y) - sz / 2, sz, sz);
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
 
     if (flash > 0) { ctx.fillStyle = theme.solid; ctx.globalAlpha = flash * 0.18; ctx.fillRect(0, 0, cw, ch); ctx.globalAlpha = 1; }
     camX -= shx; camY -= shy;

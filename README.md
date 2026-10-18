@@ -2,7 +2,8 @@
 
 A troll platformer for the browser and phones. Run, jump, reach the door. Every level lies: floors fall, spikes pop up, doors run away or bite, ceilings slam, controls swap and gravity flips. You die in one hit and come back instantly, and each trap is the same every time, so every death teaches you something.
 
-- **30 levels in 3 chapters**, each with its own palette: *Trust Issues* (cream and red), *Cold Feet* (ice blue) and *The Basement* (maroon and grey). Level 10 of each chapter is a longer, scrolling boss level.
+- **40 levels in 4 chapters**, each with its own palette: *Trust Issues* (cream and red), *Cold Feet* (ice blue), *The Basement* (maroon and grey) and *Emotional Damage* (purple). Level 10 of each chapter is a longer boss level.
+- **Emotional Damage** trolls the player, not just the runner: a fake "Level cleared" card ("Just kidding."), a checkpoint flag that saves nothing ("What checkpoint?"), traps that change once you've learned them (odd and even tries differ), a mirrored screen, speed traps, invisible spikes, a door that gives up after you've died enough, and a pause button that kills you.
 - **Traps**: collapsing and crumbling floors, hidden spikes, ball trains and bouncing cannonballs, slamming ceilings, rising pillars, ferries that sink, spike walls that chase you, runaway doors, fake doors with teeth, invisible blocks you bonk, invisible bridges, swapped controls, flipped gravity, and a "Skip level" button that kills you.
 - **Feel**: a death counter that never resets, a taunt for every death, faint marks where you died, screen shake, particles, synthesised sound effects and a chiptune loop per chapter.
 - **Controls**: arrows or A/D and Space/W/↑ on a keyboard (R restarts, Esc pauses); on phones, thumb zones around on-screen buttons, with an option to put jump on the left. Landscape first; portrait works with a smaller view.
@@ -35,7 +36,7 @@ src/
   config.js        tunables (run speed, jump, gravity), chapter palettes, taunts, GAME_NAME
   sim.js           the world: fixed-step, deterministic, no DOM. Player physics, moving blocks, balls, spikes, the door, traps
   levels/
-    ch1.js … ch3.js  the levels, as ASCII maps plus trap lists
+    ch1.js … ch4.js  the levels, as ASCII maps plus trap lists
     index.js       compiles a level: map characters to tiles, groups and marks; checks traps refer to real things
     solver.js      the search the checker uses (and the smoke test, to play a level in the browser)
   render.js        2D canvas: tiles, spikes, the runner, doors, particles, screen shake, camera
@@ -57,7 +58,7 @@ api/               Vercel functions
 
 ## Adding a level
 
-Levels live in `src/levels/ch1.js`, `ch2.js` and `ch3.js`. A level is a map plus a list of traps:
+Levels live in `src/levels/ch1.js` to `ch4.js`. A level is a map plus a list of traps:
 
 ```js
 {
@@ -84,6 +85,7 @@ One character is one tile; x runs right and y runs down, from 0 at the top-left.
 | `P` | where the runner starts (standing on the bottom of the tile) |
 | `D` | the door |
 | `F` | a fake door: identical, but it bites |
+| `K` | a checkpoint flag (decoration; pair it with a `checkpoint` trap) |
 | `a`–`z` | solid tiles in a **group**, so traps can move, drop or hide them together |
 | `1`–`9` | hidden tiles in a group: empty until a trap turns them into spikes (`spikes`) or blocks (`show`, `bonk`) |
 | `A`–`Z` (not P, D, F, V) | **marks**: named spots for traps to use, such as where the door runs to or where balls come from |
@@ -103,7 +105,10 @@ Each trap has a `when` (all its conditions must hold) and a `do`. A trap fires o
 | `stand: 'a'` / `touch: 'a'` | the runner stands on / touches group a |
 | `bonk: '1'` | the runner's head hits hidden group 1 (which then appears) |
 | `after: 3` | trap number 3 (counting from 0) has fired |
+| `before: 3` | less than 3 seconds into the attempt |
+| `tries: [2, 3]` | this is the player's 2nd or 3rd try at the level (`[3]` means 3rd and later; `'odd'` and `'even'` work too). The checker solves every version |
 | `ui: 'skip'` | the level's fake Skip button is pressed (set `fakeSkip: true` on the level) |
+| `ui: 'pause'` | the player presses pause (not when the game goes to the background) |
 
 | `do` | Effect |
 | --- | --- |
@@ -112,13 +117,18 @@ Each trap has a `when` (all its conditions must hold) and a `do`. A trap fires o
 | `vanish` | group `g` disappears |
 | `show` | hidden group `g` becomes solid |
 | `reveal` | group `g` is solid all along but invisible until this fires |
-| `spikes` | hidden group `g` pops up as spikes, pointing away from whatever it sits against |
+| `checkpoint` | says "Checkpoint saved!" and saves nothing; the next death taunts "What checkpoint?" |
+| `speed` | multiplies run speed by `factor` (2 is double, 1 is back to normal) |
+| `mirror` | flips the view left to right (the controls don't change); again to flip back |
+| `spikes` | hidden group `g` pops up as spikes, pointing away from whatever it sits against; with `invisible: true` they're there but never drawn |
 | `door` | the door runs `to` a mark |
 | `balls` | rolls or lobs balls `from` a mark with velocity `v: [vx, vy]`; `n` at a time, `gap` seconds apart, again every `every` seconds; `bounce: 0.85` makes them bounce |
 | `flip` | flips gravity |
 | `reverse` | swaps left and right |
 | `kill` | kills the runner |
 | `say` | just shows `say` |
+
+A level can also set `fakeWin: 1`: the first time the runner reaches the door, a real-looking "Level cleared" card appears, and any button on it counts as a death.
 
 Then run `npm run check` to confirm the level can be beaten. Run speed, jump height and gravity are in `src/config.js`: a held jump rises about 2.9 tiles and carries about 4 tiles at full speed, so a 3-high wall can't be jumped and a 3-wide gap can.
 

@@ -25,7 +25,9 @@ const CAUSE_TAUNTS = {
   fall: ['Mind the gap.', 'Down you go.', 'Gravity: 1, you: 0.'],
   ball: ['Bowled over.', 'Strike!'],
   trap: ['Nice try.', 'Did you really think…'],
+  fake: ['Just kidding.', 'lol no.', 'You really thought.'],
 };
+let fakesLeft = 0, faking = false, fakeCheckpoint = false; // chapter 4's fake wins and fake checkpoints
 
 export function boot() {
   const canvas = $('stage');
@@ -63,6 +65,7 @@ export function boot() {
     play: (i, inputs) => { startLevel(i); replaying = { inputs, at: 0 }; },
     start: i => startLevel(i),
     routes: (map) => Object.assign(routes, map),
+    feed: inputs => { replaying = { inputs, at: 0 }; },
   };
 }
 
@@ -88,6 +91,8 @@ function startLevel(i, c = null) {
   chal = c;
   loadLevel(i);
   runDeaths = c ? c.rec.cur.deaths : 0; runTime = c ? c.rec.cur.time : 0;
+  s = createState(L, { attempt: runDeaths + 1 });
+  fakesLeft = L.fakeWin; faking = false; fakeCheckpoint = false;
   deadT = 0; acc = 0;
   const lv = LEVELS[i];
   replaying = routes[lv.id] ? { inputs: routes[lv.id], at: 0 } : null;
@@ -108,7 +113,8 @@ function startLevel(i, c = null) {
 }
 
 function respawn() {
-  s = createState(L);
+  s = createState(L, { attempt: runDeaths + 1 });
+  fakeCheckpoint = false;
   deadT = 0; acc = 0;
   $('btnFakeSkip').hidden = !L.fakeSkip;
 }
@@ -166,7 +172,10 @@ function drain() {
       case 'win': sound.win(); break;
       case 'trap':
         if (ev.kind === 'fall') sound.fall();
-        else if (ev.kind === 'spikes') sound.spike();
+        else if (ev.kind === 'spikes') { if (!ev.quiet) sound.spike(); }
+        else if (ev.kind === 'checkpoint') { sound.check(); fakeCheckpoint = true; ui.taunt('Checkpoint saved!'); }
+        else if (ev.kind === 'speed') sound.flip();
+        else if (ev.kind === 'mirror') sound.flip();
         else if (ev.kind === 'door') sound.door();
         else if (ev.kind === 'flip') sound.flip();
         else if (ev.kind === 'reverse') sound.lol();
@@ -187,9 +196,10 @@ function onDeath(cause) {
   ui.bumpDeaths(runDeaths);
   if (save.settings.haptics && navigator.vibrate) navigator.vibrate(40);
   ui.hideIntro();
-  const pool = CAUSE_TAUNTS[cause] && Math.random() < 0.45 ? CAUSE_TAUNTS[cause] : TAUNTS;
+  const pool = cause === 'fake' ? CAUSE_TAUNTS.fake : CAUSE_TAUNTS[cause] && Math.random() < 0.45 ? CAUSE_TAUNTS[cause] : TAUNTS;
   let line;
   do line = pool[Math.floor(Math.random() * pool.length)]; while (line === lastTaunt && pool.length > 1);
+  if (fakeCheckpoint) line = 'What checkpoint?';
   lastTaunt = line;
   ui.taunt(line);
 }
@@ -197,6 +207,7 @@ function onDeath(cause) {
 function finish() {
   mode = 'done'; replaying = null;
   document.body.classList.remove('playing');
+  if (fakesLeft > 0) { fakesLeft--; fakeWin(); return; }
   if (chal) { challengeLevelDone(); return; }
   const lv = LEVELS[idx], ls = levelSave(lv.id);
   const firstClear = !ls.cleared;
@@ -221,6 +232,30 @@ function finish() {
   $('btnReplay').hidden = false; $('btnResLevels').hidden = false;
   $('btnShare').hidden = !(lastOfChapter || lastOfGame);
   setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+}
+
+// Chapter 4: a result card that looks exactly like the real one. Whatever you press, it was a lie, and it counts
+// as a death.
+function fakeWin() {
+  faking = true;
+  const lv = LEVELS[idx];
+  $('resEyebrow').textContent = chal ? `Challenge · level ${chal.rec.deaths.length + 1} of ${CHALLENGE_LEVELS}` : `Level ${lv.id} cleared`;
+  $('resTitle').textContent = CLEAR_LINES.find(([n]) => runDeaths <= n)[1];
+  $('resDeaths').textContent = runDeaths;
+  $('resTime').textContent = runTime.toFixed(1);
+  $('resNote').textContent = '';
+  $('btnNext').textContent = 'Next level'; $('btnNext').hidden = false;
+  $('btnReplay').hidden = !!chal; $('btnResLevels').hidden = !!chal; $('btnShare').hidden = true;
+  setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+}
+
+function unfake() {
+  faking = false;
+  ui.showModal('mdlResult', false);
+  mode = 'play'; last = performance.now();
+  document.body.classList.add('playing');
+  onDeath('fake');
+  respawn();
 }
 
 // A challenge level is recorded straight away (so closing the game on the result card loses nothing). Beating it
@@ -272,8 +307,13 @@ function goLevels() {
   ui.showScreen('scrLevels');
 }
 
-function pause() {
+// byPlayer: the pause button or Esc, rather than the game going to the background
+function pause(byPlayer = false) {
   if (mode !== 'play') return;
+  if (byPlayer && L.noPause && s.status === 'play') { // the level that kills you for pausing
+    fireExternal(L, s, 'pause'); drain();
+    if (s.status !== 'play') return;
+  }
   saveChallengeTime();
   mode = 'pause';
   clearInput();
@@ -293,6 +333,7 @@ function resume() {
 }
 
 function next() {
+  if (faking) { unfake(); return; }
   if (chal) {
     const c = chal;
     if (Compete.finished(c.rec)) openChallenge(c.id);
@@ -482,13 +523,13 @@ function onKey(e) {
   if (e.repeat || e.target.closest?.('input, textarea')) return;
   const k = e.code;
   if (mode === 'play') {
-    if (k === 'Escape' || k === 'KeyP') pause();
+    if (k === 'Escape' || k === 'KeyP') pause(true);
     else if (k === 'KeyR') restart();
   } else if (mode === 'pause') {
     if (k === 'Escape' || k === 'KeyP') resume();
   } else if (mode === 'done' && !$('mdlResult').hidden) {
     if (k === 'Enter' || k === 'Space') { e.preventDefault(); if (!$('btnNext').hidden) next(); }
-    else if (k === 'KeyR' && !chal) startLevel(idx);
+    else if (k === 'KeyR' && !chal) (faking ? unfake() : startLevel(idx));
   } else if (mode === 'menu' && k === 'Escape' && $('scrTitle').hidden) goTitle();
 }
 
@@ -532,14 +573,14 @@ function wireButtons() {
   on('btnCreate', createFromPick);
   on('btnChBack', openCompete);
   $('cmpName').addEventListener('input', e => handlers.setName(e.target.value));
-  on('btnPause', pause);
+  on('btnPause', () => pause(true));
   on('btnRestart', restart);
   on('btnResume', resume);
   on('btnPauseRestart', () => { resume(); restart(); });
   on('btnPauseLevels', () => (chal ? openChallenge(chal.id) : goLevels()));
   on('btnPauseHome', goTitle);
-  on('btnReplay', () => startLevel(idx));
-  on('btnResLevels', goLevels);
+  on('btnReplay', () => (faking ? unfake() : startLevel(idx)));
+  on('btnResLevels', () => (faking ? unfake() : goLevels()));
   on('btnNext', next);
   on('btnShare', share);
   on('btnFakeSkip', () => {

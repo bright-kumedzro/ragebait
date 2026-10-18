@@ -13,11 +13,22 @@ for (const lv of LEVELS) {
     const widths = new Set(rows.map(r => r.length));
     if (widths.size > 1) throw new Error(`rows have different widths: ${[...widths].join(', ')}`);
     const L = compile(lv.def, lv.id);
-    const res = solve(L);
+    // levels whose traps change with the attempt number must be beatable on every version of themselves
+    const tries = L.traps.map(t => t.when.tries).filter(t => t !== undefined);
+    // every attempt where some trap switches on or off, plus one after the last (odd/even repeats every 2)
+    const edges = tries.flatMap(t => (Array.isArray(t) ? [t[0], ...(t[1] !== undefined && t[1] < 50 ? [t[1] + 1] : [])] : [2]));
+    const top = Math.max(1, ...edges);
+    const attempts = tries.length ? Array.from({ length: top + 1 }, (_, i) => i + 1) : [1];
+    let bad = '', stats = '';
+    for (const attempt of attempts) {
+      const res = solve(L, { attempt });
+      if (!res.ok) { bad = `no way through found on attempt ${attempt} (${res.nodes} states searched)`; break; }
+      if (!replay(L, res.actions, res.chunk, attempt)) { bad = `the route for attempt ${attempt} didn't replay (the sim isn't deterministic)`; break; }
+      if (attempt === 1) stats = `solved in ${res.seconds.toFixed(1)} s of play, ${res.nodes} states`;
+    }
     const ms = (performance.now() - t0).toFixed(0);
-    if (!res.ok) { failed++; console.log(`✗ ${lv.id} ${lv.def.name}: no way through found (${res.nodes} states searched, ${ms} ms)`); continue; }
-    if (!replay(L, res.actions, res.chunk)) { failed++; console.log(`✗ ${lv.id} ${lv.def.name}: the route didn't replay (the sim isn't deterministic)`); continue; }
-    console.log(`✓ ${lv.id} ${lv.def.name.padEnd(24)} ${L.w}×${L.h}  solved in ${res.seconds.toFixed(1)} s of play, ${res.nodes} states, ${ms} ms`);
+    if (bad) { failed++; console.log(`✗ ${lv.id} ${lv.def.name}: ${bad}, ${ms} ms`); continue; }
+    console.log(`✓ ${lv.id} ${lv.def.name.padEnd(24)} ${L.w}×${L.h}  ${stats}${attempts.length > 1 ? ` (and attempts 2-${attempts.length})` : ''}, ${ms} ms`);
   } catch (e) { failed++; console.log(`✗ ${lv.id}: ${e.message}`); }
 }
 if (failed) { console.log(`\n${failed} level(s) failed`); process.exit(1); }

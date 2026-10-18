@@ -5,8 +5,9 @@ import { SOLID, SPIKE_U, SPIKE_D, SPIKE_L, SPIKE_R, BONK } from '../sim.js';
 import ch1 from './ch1.js';
 import ch2 from './ch2.js';
 import ch3 from './ch3.js';
+import ch4 from './ch4.js';
 
-export const CHAPTER_LEVELS = [ch1, ch2, ch3];
+export const CHAPTER_LEVELS = [ch1, ch2, ch3, ch4];
 export const LEVELS = CHAPTER_LEVELS.flatMap((list, c) => list.map((def, i) => ({ id: `${c + 1}-${i + 1}`, ch: c, i, def })));
 export const levelIndex = id => LEVELS.findIndex(l => l.id === id);
 
@@ -35,7 +36,7 @@ export function compile(def, id = '?') {
   const rows = def.map.split('\n').map(r => r.trim()).filter(r => r.length);
   const h = rows.length, w = Math.max(...rows.map(r => r.length));
   const grid = new Uint8Array(w * h), cellGroup = new Array(w * h).fill('');
-  const groups = {}, marks = {}, fakeDoors = [];
+  const groups = {}, marks = {}, fakeDoors = [], flags = [];
   let start = null, door = null;
   const group = ch => (groups[ch] ||= { solid: [], hidden: [] });
 
@@ -48,6 +49,7 @@ export function compile(def, id = '?') {
       else if (c === 'P') start = { x: cx + 0.5 - PLAYER_W / 2, y: cy + 1 - PLAYER_H };
       else if (c === 'D') { const [x, y] = doorAt(cx, cy); door = { x, y }; }
       else if (c === 'F') { const [x, y] = doorAt(cx, cy); fakeDoors.push({ x, y }); }
+      else if (c === 'K') { flags.push({ x: cx, y: cy, mark: true }); marks.K ||= [cx, cy]; }
       else if (c >= 'a' && c <= 'z') { grid[i] = SOLID; group(c).solid.push([cx, cy]); cellGroup[i] = c; }
       else if (c >= '1' && c <= '9') { group(c).hidden.push([cx, cy]); cellGroup[i] = c; }
       else if (c >= 'A' && c <= 'Z') { if (marks[c]) fail(`mark ${c} used twice`); marks[c] = [cx, cy]; }
@@ -91,5 +93,5 @@ export function compile(def, id = '?') {
   // groups drawn as empty air until something reveals them (they're solid all along)
   const invisible = traps.filter(t => t.do === 'reveal').map(t => t.g).join('');
 
-  return { id, name: def.name, invisible, hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
+  return { id, name: def.name, invisible, flags, fakeWin: def.fakeWin || 0, noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
 }

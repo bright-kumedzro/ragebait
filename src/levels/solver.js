@@ -49,7 +49,7 @@ function advance(L, s, a, steps) {
   return 'play';
 }
 
-export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3 } = {}) {
+export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1 } = {}) {
   L.timed ??= L.traps.some(t => t.when.t !== undefined || t.loop || t.every);
   const perChunk = RUN * chunk * STEP;
   const h = s => {
@@ -59,7 +59,7 @@ export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3 } = {}) {
     const fired = s.fired.reduce((n, f) => n + (f === 2), 0);
     return (Math.abs(dx) + Math.abs(dy) * 0.6) / perChunk - fired * 25;
   };
-  const start = createState(L);
+  const start = createState(L, { attempt });
   const open = new Heap(), seen = new Set([key(L, start)]);
   open.push({ s: start, g: 0, f: h(start), parent: null, a: -1 });
   let nodes = 0;
@@ -88,8 +88,8 @@ export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3 } = {}) {
 }
 
 // Plays a found route from a fresh start; true if it still wins (it should: the sim is deterministic).
-export function replay(L, actions, chunk) {
-  const s = createState(L);
+export function replay(L, actions, chunk, attempt = 1) {
+  const s = createState(L, { attempt });
   for (const ai of actions) {
     const st = advance(L, s, ACTIONS[ai], chunk);
     if (st !== 'play') return st === 'won';

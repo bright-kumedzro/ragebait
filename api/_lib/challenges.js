@@ -20,7 +20,7 @@ const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), b => ID_CHARS[b % ID_CHARS.length]).join('');
 export const validId = id => typeof id === 'string' && /^[A-Za-z0-9]{6,12}$/.test(id);
 const validPlayer = p => typeof p === 'string' && /^[A-Za-z0-9-]{16,64}$/.test(p);
-const validLevel = l => typeof l === 'string' && /^[1-3]-([1-9]|10)$/.test(l);
+const validLevel = l => typeof l === 'string' && /^[1-9]-([1-9]|10)$/.test(l);
 const validHash = h => typeof h === 'string' && /^[0-9a-f]{8}$/.test(h);
 function cleanName(s) {
   const name = String(s ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);

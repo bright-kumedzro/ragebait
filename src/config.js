@@ -44,6 +44,10 @@ export const CHAPTERS = [
     id: 'basement', name: 'The Basement', blurb: 'Down here, even gravity is in on it',
     theme: { air: '#6E5A5E', solid: '#2A0609', ink: '#050000', door: '#C9B8A6', ui: '#F0E2D8', paper: '#EADBD2', text: '#2A0609' },
   },
+  {
+    id: 'damage', name: 'Emotional Damage', blurb: 'It knows what you learned, and it uses it against you',
+    theme: { air: '#F4E4F1', solid: '#7A2E8E', ink: '#16081C', door: '#F5C542', ui: '#4B1A59' },
+  },
 ];
 
 // Said when you die. Picked at random, never the same twice in a row.

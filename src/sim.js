@@ -12,9 +12,13 @@ export const AIR = 0, SOLID = 1, SPIKE_U = 2, SPIKE_D = 3, SPIKE_L = 4, SPIKE_R 
 export const isSpike = t => t >= SPIKE_U && t <= SPIKE_R;
 const EPS = 1e-6;
 
-export function createState(L) {
+// attempt: which try this is (1 = first), for traps that change once you've learned them
+export function createState(L, { attempt = 1 } = {}) {
   return {
     t: 0,
+    attempt,
+    speed: 1,           // run-speed multiplier (the 'speed' trap)
+    mirror: false,      // the view is flipped left to right (drawing only; the controls don't change)
     grid: L.grid.slice(),
     p: { x: L.start.x, y: L.start.y, vx: 0, vy: 0, ground: true, coyote: 0, buffer: 0, jHeld: false, face: 1, run: 0, air: 0 },
     grav: 1,            // 1 = down, -1 = up
@@ -104,8 +108,8 @@ function stepPlayer(L, s, input) {
   const p = s.p, dt = STEP;
   let dir = (input.r ? 1 : 0) - (input.l ? 1 : 0);
   if (s.rev) dir = -dir;
-  const target = dir * RUN;
-  const a = !p.ground ? AIR_ACCEL : dir ? ACCEL : DECEL;
+  const target = dir * RUN * s.speed;
+  const a = (!p.ground ? AIR_ACCEL : dir ? ACCEL : DECEL) * Math.max(1, s.speed);
   p.vx = p.vx < target ? Math.min(target, p.vx + a * dt) : Math.max(target, p.vx - a * dt);
   if (dir) p.face = dir;
 
@@ -316,6 +320,11 @@ function triggered(L, s, w, i) {
     if (Math.hypot(d.x + 0.4 - cx, d.y + 0.7 - cy) > w.near || doorMoving(s)) return false;
   }
   if (w.t !== undefined && s.t < w.t) return false;
+  if (w.before !== undefined && s.t >= w.before) return false;
+  if (w.tries !== undefined) {
+    const a = s.attempt, tr = w.tries;
+    if (tr === 'odd' ? a % 2 === 0 : tr === 'even' ? a % 2 === 1 : a < tr[0] || a > (tr[1] ?? Infinity)) return false;
+  }
   if (w.after !== undefined && s.fired[w.after] !== 2) return false;
   if (w.jump && !s.jumped) return false;
   if (w.land && !s.landed) return false;
@@ -386,7 +395,7 @@ function moverSpikes(cells, sides) {
 function apply(L, s, i) {
   const tr = L.traps[i];
   s.fired[i] = 2;
-  s.events.push({ e: 'trap', kind: tr.do, say: tr.say || '', i });
+  s.events.push({ e: 'trap', kind: tr.do, say: tr.say || '', i, quiet: !!tr.invisible });
   switch (tr.do) {
     case 'fall': {
       const moving = s.movers.find(m => m.g === tr.g[0] && !m.gone);
@@ -422,7 +431,7 @@ function apply(L, s, i) {
       if (blocked(L, s, s.p.x, s.p.y, PLAYER_W, PLAYER_H)) die(s, 'crush');
       break;
     case 'spikes':
-      for (const ch of tr.g) for (const c of L.groups[ch].hidden) s.spikes.push({ x: c[0], y: c[1], dir: c[2], k: 0 });
+      for (const ch of tr.g) for (const c of L.groups[ch].hidden) s.spikes.push({ x: c[0], y: c[1], dir: c[2], k: tr.invisible ? 1 : 0, inv: !!tr.invisible });
       break;
     case 'door': {
       const d = s.door;
@@ -436,6 +445,9 @@ function apply(L, s, i) {
       });
       break;
     case 'reveal': s.revealed += tr.g; break;
+    case 'speed': s.speed = tr.factor ?? 1; break;
+    case 'mirror': s.mirror = !s.mirror; break;
+    case 'checkpoint': break; // a fake one: the game says "Checkpoint saved!" and then doesn't
     case 'flip': s.grav = -s.grav; s.p.ground = false; break;
     case 'reverse': s.rev = !s.rev; break;
     case 'kill': die(s, tr.cause || 'trap'); break;

@@ -165,6 +165,37 @@ if (!only) for (const [name, vp] of VIEWS) {
   await ctxA.close(); await ctxB.close();
 }
 
+// chapter 4: a fake win then the real one, the pause button that kills, and the mirrored view
+{
+  const page = await open('ch4', { width: 1280, height: 720 });
+  const at = id => LEVELS.findIndex(l => l.id === id);
+  const routeOn = (id, attempt) => { const r = solve(compile(LEVELS[at(id)].def, id), { attempt }); return toSteps(r.actions, r.chunk); };
+  const cardUp = () => page.waitForFunction(() => window.__rb.state.mode === 'done' && !document.getElementById('mdlResult').hidden, { timeout: 15000 });
+  await page.evaluate((i, steps) => window.__rb.play(i, steps), at('4-1'), routeOn('4-1', 1));
+  await cardUp().catch(() => errors.push('[ch4] no result card on 4-1'));
+  await page.screenshot({ path: 'artifact/shots/ch4-1-fake-win.png' });
+  await page.click('#btnNext'); await wait(250);
+  const st = await page.evaluate(() => window.__rb.state);
+  if (st.mode !== 'play' || st.deaths !== 1) errors.push(`[ch4] Next on the fake card should count a death and carry on (mode ${st.mode}, deaths ${st.deaths})`);
+  await page.screenshot({ path: 'artifact/shots/ch4-2-just-kidding.png' });
+  await page.evaluate(steps => window.__rb.feed(steps), routeOn('4-1', 2));
+  await cardUp().catch(() => errors.push('[ch4] attempt 2 of 4-1 did not finish'));
+  const cleared = await page.evaluate(() => JSON.parse(localStorage.getItem('ragebait.save.v1')).levels['4-1']?.cleared);
+  if (!cleared) errors.push('[ch4] the real win on attempt 2 should clear 4-1');
+
+  await page.evaluate(i => window.__rb.start(i), at('4-7')); await wait(300);
+  await page.click('#btnPause'); await wait(150);
+  const p = await page.evaluate(() => ({ status: window.__rb.state.status, paused: !document.getElementById('mdlPause').hidden }));
+  if (p.status !== 'dead' || p.paused) errors.push(`[ch4] pausing on 4-7 should kill, not pause (status ${p.status}, paused ${p.paused})`);
+  await page.screenshot({ path: 'artifact/shots/ch4-3-no-breaks.png' });
+
+  await page.evaluate((i, steps) => window.__rb.play(i, steps), at('4-5'), routeOn('4-5', 1));
+  await page.waitForFunction(() => window.__rb.state.x > 9, { timeout: 8000 }).catch(() => errors.push('[ch4] 4-5 did not get going'));
+  await wait(200);
+  await page.screenshot({ path: 'artifact/shots/ch4-4-mirror.png' });
+  await page.close();
+}
+
 // every level, as it first appears
 {
   const page = await open('levels', { width: 1280, height: 720 });

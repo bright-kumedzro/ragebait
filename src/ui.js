@@ -92,7 +92,7 @@ export function renderTitle() {
   $('playLabel').textContent = started ? 'Continue' : 'Play';
   $('playSub').textContent = `Level ${lv.id} · ${lv.def.name}`;
   const d = save.deaths;
-  $('statLine').textContent = d ? `${d.toLocaleString()} ${d === 1 ? 'death' : 'deaths'} so far. Rookie numbers.` : '30 levels. Every one of them is lying.';
+  $('statLine').textContent = d ? `${d.toLocaleString()} ${d === 1 ? 'death' : 'deaths'} so far. Rookie numbers.` : `${LEVELS.length} levels. Every one of them is lying.`;
 }
 
 // ---------- level select ----------
