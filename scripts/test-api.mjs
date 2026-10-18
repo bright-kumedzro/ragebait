@@ -52,5 +52,36 @@ const v3 = await get(`id=${ch.id}&p=${B}`);
 ok(f.forgotten && v3.by === 'Someone' && !v3.players.some(p => p.name === 'Ama'), 'forgetting removes scores and the creator’s name');
 ok((await get(`stats=${A}`)).played === 0, 'forgetting clears the win record');
 
+// The same rules through the plain-Redis adapter, on a stand-in that behaves like node-redis: every value is a
+// string, HSETNX answers true or false, and a missing hash comes back as {}.
+{
+  const { redisAdapter } = await import('../api/_lib/store.js');
+  const rules = await import('../api/_lib/challenges.js');
+  const h = new Map(), l = new Map(), hash = k => h.get(k) || h.set(k, new Map()).get(k);
+  const fake = {
+    async hGetAll(k) { return Object.fromEntries(h.get(k) || []); },
+    async hSetNX(k, f, v) { if (typeof v !== 'string') throw new Error('non-string value'); const m = hash(k); if (m.has(f)) return false; m.set(f, v); return true; },
+    async hDel(k, fs) { let n = 0; for (const f of [].concat(fs)) n += h.get(k)?.delete(f) ? 1 : 0; return n; },
+    async del(k) { return (h.delete(k) | l.delete(k)) ? 1 : 0; },
+    async expire() { return true; },
+    async lPush(k, v) { l.set(k, [String(v), ...(l.get(k) || [])]); return l.get(k).length; },
+    async lTrim(k, a, b) { l.set(k, (l.get(k) || []).slice(a, b + 1)); return 'OK'; },
+    async lRange(k, a, b) { return (l.get(k) || []).slice(a, b + 1); },
+  };
+  const db = redisAdapter(async () => fake);
+  const c = await rules.createChallenge(db, { name: 'Ama', p: A, levels, hashes });
+  await rules.joinChallenge(db, { id: c.id, name: 'Kofi', p: B });
+  await rules.submitScore(db, { id: c.id, name: 'Ama', p: A, deaths: [1, 1, 1], times: [5, 5, 5] });
+  await rules.submitScore(db, { id: c.id, name: 'Kofi', p: B, deaths: [0, 2, 9], times: [5, 5, 5] });
+  const v = await rules.viewChallenge(db, c.id, B);
+  ok(v.by === 'Ama' && v.levels.join() === levels.join() && v.players.map(p => `${p.name}:${p.total}`).join() === 'Ama:3,Kofi:11', 'plain Redis: challenges and scores round-trip as JSON');
+  ok((await rules.playerStats(db, A)).wins === 1, 'plain Redis: win records work');
+  await rules.forgetPlayer(db, { p: B, ids: [c.id] });
+  ok((await rules.viewChallenge(db, c.id, A)).players.length === 1, 'plain Redis: forgetting a player works');
+  let missing = '';
+  try { await rules.viewChallenge(db, 'abcdefgh', A); } catch (e) { missing = e.status; }
+  ok(missing === 404, 'plain Redis: an unknown challenge is a 404');
+}
+
 if (failed) { console.log(`\n${failed} failed`); process.exit(1); }
 console.log('\nall API tests passed');

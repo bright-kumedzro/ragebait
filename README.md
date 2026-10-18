@@ -132,7 +132,12 @@ It's live at [playragebait.vercel.app](https://playragebait.vercel.app), deploye
 
 The service worker loads the page network-first, so players get a new deploy on their next visit, and falls back to the cache when offline. The build stamps the cache name in `dist/sw.js` with a hash of the output (see `vite.config.js`), so each deploy gets a fresh cache and the old one is deleted.
 
-Challenges are stored in Redis on [Upstash](https://upstash.com). Vercel needs `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` set as environment variables (or the `KV_REST_API_URL` and `KV_REST_API_TOKEN` pair that Vercel's Upstash integration adds). Without them, the API answers 503 and the rest of the game still works. Every key starts with `rb:`, so the database can be shared with another project. The functions run in Vercel's London region (`lhr1` in `vercel.json`); move it next to wherever the database lives. Challenges and win records expire after a year.
+Challenges are stored in Redis. Either kind works (see `api/_lib/store.js`):
+
+- **Redis from Vercel's Marketplace**, or any Redis server: create it from the project's **Storage** tab and connect it to the project, which sets `REDIS_URL`.
+- **Upstash Redis**: `KV_REST_API_URL` and `KV_REST_API_TOKEN` (set by Vercel's Upstash integration) or `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (a database made at upstash.com).
+
+Without either, the API answers 503 and the rest of the game still works. Every key starts with `rb:`, so the database can be shared with another project. The functions run in Vercel's London region (`lhr1` in `vercel.json`); move it next to wherever the database lives. Challenges and win records expire after a year.
 
 Each challenge stores a fingerprint of its 3 levels (`levelHash` in `src/levels/index.js`). If you change a level, older challenges that use it say so instead of comparing deaths on two different levels.
 
