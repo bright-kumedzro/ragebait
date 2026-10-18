@@ -9,6 +9,17 @@ const KEEP = 30;
 
 export const available = () => __COMPETE__ && location.protocol.startsWith('http');
 
+// Whether the server has somewhere to keep challenges. Until it does, the game hides the challenge button rather
+// than offer something that can only fail. Asked once per visit; a network error counts as "not now".
+let ready = null;
+export function serverReady() {
+  if (!available()) return Promise.resolve(false);
+  // the body is read even though only the status matters: an unread response keeps the request open
+  ready ||= fetch(`${API}?ping`, { cache: 'no-store' })
+    .then(async r => { await r.text().catch(() => ''); return r.ok; }, () => { ready = null; return false; });
+  return ready;
+}
+
 function playerId() {
   // getRandomValues, unlike randomUUID, also works on plain-http LAN addresses used for phone testing
   if (!save.player.id) { save.player.id = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); persist(); }

@@ -296,7 +296,7 @@ function toMenu() {
 function goTitle() {
   toMenu();
   ui.renderTitle();
-  $('btnCompete').hidden = !Compete.available();
+  Compete.serverReady().then(ok => { $('btnCompete').hidden = !ok; });
   ui.showScreen('scrTitle');
   refreshCompeteBadge();
 }
@@ -556,7 +556,8 @@ function wireButtons() {
   on('btnCompete', openCompete);
   on('btnSettings', () => {
     ui.renderSettings(onSetting);
-    $('btnForget').hidden = !Compete.available();
+    $('btnForget').hidden = true;
+    Compete.serverReady().then(ok => { $('btnForget').hidden = !ok; });
     ui.showScreen('scrSettings');
   });
   for (const b of document.querySelectorAll('[data-back]')) b.addEventListener('click', () => { sound.click(); goTitle(); });

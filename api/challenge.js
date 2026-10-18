@@ -1,4 +1,5 @@
 // Challenge API.
+//   GET  /api/challenge?ping                       200 when challenges are set up (a store is configured), else 503
 //   GET  /api/challenge?id=<id>&p=<playerId>      one challenge and its scoreboard
 //   GET  /api/challenge?stats=<playerId>          that player's win record
 //   GET  /api/challenge?ids=<a,b,c>&p=<playerId>  who has joined and finished each of those challenges
@@ -26,6 +27,7 @@ async function handle(fn) {
 
 export function GET(req) {
   const q = new URL(req.url).searchParams;
+  if (q.has('ping')) return handle(async () => ({ ok: true }));
   if (q.has('stats')) return handle(db => playerStats(db, q.get('stats')));
   if (q.has('ids')) return handle(db => summaries(db, q.get('ids'), q.get('p')));
   return handle(db => viewChallenge(db, q.get('id'), q.get('p')));
