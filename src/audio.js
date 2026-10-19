@@ -94,7 +94,8 @@ const SONGS = [
 let song = 0, timer = null, nextAt = 0, stepI = 0;
 const hz = n => 440 * 2 ** ((n - 69) / 12);
 
-export function setSong(i) { song = Math.max(0, Math.min(SONGS.length - 1, i)); }
+// chapters beyond the fifth reuse the five loops in turn
+export function setSong(i) { song = ((i % SONGS.length) + SONGS.length) % SONGS.length; }
 
 function startMusic() {
   if (timer || !ac) return;
