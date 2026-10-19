@@ -164,3 +164,7 @@ npm run build && npx cap add android && npx cap open android
 ```
 
 Before release, add PNG app icons (192 and 512 px). The manifest currently ships SVG icons, which Chrome accepts but some launchers don't.
+
+## Credits
+
+Made by [Bright Kumedzro](https://www.linkedin.com/in/bright-kumedzro-46345420b). Inspired by [*Level Devil*](https://store.steampowered.com/app/3242750/Level_Devil) by Unept, and the troll platformers before it, like *Syobon Action* (Cat Mario). The levels, art, sound and music in this repo are original.
