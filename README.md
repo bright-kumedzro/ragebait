@@ -160,7 +160,7 @@ Then run `npm run check` to confirm the level can be beaten. Run speed, jump hei
 
 Three ways to see how the game is doing:
 
-- **The About page** shows public totals: deaths across all players, players, players this week, levels beaten and challenges made.
+- **The About page** shows public totals: players, deaths across all players, players this week, levels beaten and challenges made.
 - **`node scripts/stats.mjs`** prints everything: players, installs, active today, this week and this month, levels beaten, deaths, challenges, **retention** (how many players come back 1, 7 and 30 days after their first day), and a row per day.
 - **Vercel Web Analytics** (in the Vercel dashboard, under the project's Analytics tab) shows page visits, where visitors came from, countries and devices. It has to be switched on once in that tab.
 
