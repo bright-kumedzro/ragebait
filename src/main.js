@@ -1,4 +1,5 @@
 import './style.css';
+import './analytics.js';
 import { showFatal } from './fatal.js';
 
 // Any error while starting lands on a full-screen message instead of a blank page.

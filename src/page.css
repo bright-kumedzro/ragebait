@@ -31,6 +31,19 @@ section li + li { margin-top: 4px; }
 section :last-child { margin-bottom: 0; }
 kbd { font-family: var(--font-body); font-weight: 800; font-size: 0.85em; padding: 1px 6px; border-radius: 5px; border: 2px solid var(--ink); }
 .meta { margin: 0; font-size: 14px; color: var(--ui); }
+/* About: the public play counts */
+.stat-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; margin: 4px 0 12px; }
+.stat { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 10px; border: 3px solid var(--solid); }
+.stat b { font-family: var(--font-display); font-weight: 400; font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 14px; font-weight: 700; color: var(--ui); }
+.stat-lead { grid-row: span 2; justify-content: center; background: var(--solid); color: var(--air); box-shadow: 4px 4px 0 var(--ink); }
+.stat-lead b { font-size: 56px; }
+.stat-lead span { color: var(--air); font-size: 16px; }
+@media (max-width: 560px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .stat-lead { grid-column: 1 / -1; grid-row: auto; }
+  .stat-lead b { font-size: 44px; }
+}
 /* 404 */
 .lost { align-items: center; text-align: center; gap: 14px; padding-top: 4vh; }
 .lost-art { width: min(340px, 85vw); height: auto; }

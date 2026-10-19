@@ -1,6 +1,7 @@
-// Tests the challenge API against the in-memory store: validation, one score per player, ranking, win records,
-// forgetting a player, and the share page. Usage: node scripts/test-api.mjs
+// Tests the challenge and stats APIs against the in-memory store: validation, one score per player, ranking, win
+// records, forgetting a player, the share page, and the anonymous play counts. Usage: node scripts/test-api.mjs
 import * as api from '../api/challenge.js';
+import * as statsApi from '../api/stats.js';
 import * as share from '../api/share.js';
 
 let failed = 0;
@@ -53,6 +54,31 @@ const v3 = await get(`id=${ch.id}&p=${B}`);
 ok(f.forgotten && v3.by === 'Someone' && !v3.players.some(p => p.name === 'Ama'), 'forgetting removes scores and the creator’s name');
 ok((await get(`stats=${A}`)).played === 0, 'forgetting clears the win record');
 
+// Anonymous play counts: reports add up, junk is ignored, challenges are counted (including ones made before
+// counting began, once), and retention rows fill in.
+{
+  const call = async (method, q = '', body) => {
+    const res = await statsApi[method](new Request(`http://x/api/stats${q}`, body !== undefined ? { method, body: JSON.stringify(body) } : { method }));
+    return { status: res.status, data: await res.json() };
+  };
+  let st = (await call('GET')).data;
+  ok(st.challenges === 1 && st.finishes === 2, `challenges made before counting began (2 runs left after the forget above) are added up on the first read (${st.challenges}, ${st.finishes})`);
+  ok((await call('GET')).data.challenges === 1, 'and only once');
+  await call('POST', '', { first: true, day: true, week: true, month: true, levels: 12, deaths: 300 });
+  await call('POST', '', { first: false, day: true, week: false, month: false, levels: 2, deaths: 7 });
+  await call('POST', '', { first: 'yes', levels: -5, deaths: 1e9 });
+  ok((await call('POST', '', 'nonsense')).status === 200, 'a malformed report is ignored');
+  st = (await call('GET', '?days=3')).data;
+  ok(st.players === 1 && st.levels === 14 && st.deaths === 100307, `reports add up, with silly numbers capped (${st.players}, ${st.levels}, ${st.deaths})`);
+  ok(st.activeToday === 2 && st.activeWeek === 1 && st.days.length === 3 && st.days[2].levels === 2, 'periods and a first report’s history are counted apart');
+  await post({ action: 'create', name: 'Ama', p: A, levels, hashes });
+  ok((await call('GET')).data.challenges === 2, 'new challenges are counted as they are made');
+  await call('POST', '', { day: true, age: 1 });
+  await call('POST', '', { day: true, age: 7, install: true });
+  st = (await call('GET', '?days=1')).data;
+  ok(st.days[0].d1 === 1 && st.days[0].d7 === 1 && st.days[0].ret === 2 && st.installs === 1, 'returning players and installs are counted for retention');
+}
+
 // The same rules through the plain-Redis adapter, on a stand-in that behaves like node-redis: every value is a
 // string, HSETNX answers true or false, and a missing hash comes back as {}.
 {
@@ -64,6 +90,8 @@ ok((await get(`stats=${A}`)).played === 0, 'forgetting clears the win record');
     async hSetNX(k, f, v) { if (typeof v !== 'string') throw new Error('non-string value'); const m = hash(k); if (m.has(f)) return false; m.set(f, v); return true; },
     async hDel(k, fs) { let n = 0; for (const f of [].concat(fs)) n += h.get(k)?.delete(f) ? 1 : 0; return n; },
     async del(k) { return (h.delete(k) | l.delete(k)) ? 1 : 0; },
+    async hIncrBy(k, f, by) { const m = hash(k), v = (Number(m.get(f)) || 0) + by; m.set(f, String(v)); return v; },
+    async scan(cursor, { MATCH }) { const p = MATCH.replace(/\*$/, ''); return { cursor: 0, keys: [...h.keys()].filter(k => k.startsWith(p)) }; },
     async expire() { return true; },
     async lPush(k, v) { l.set(k, [String(v), ...(l.get(k) || [])]); return l.get(k).length; },
     async lTrim(k, a, b) { l.set(k, (l.get(k) || []).slice(a, b + 1)); return 'OK'; },
@@ -82,6 +110,10 @@ ok((await get(`stats=${A}`)).played === 0, 'forgetting clears the win record');
   let missing = '';
   try { await rules.viewChallenge(db, 'abcdefgh', A); } catch (e) { missing = e.status; }
   ok(missing === 404, 'plain Redis: an unknown challenge is a 404');
+  const statsLib = await import('../api/_lib/stats.js');
+  await statsLib.record(db, { first: true, day: true, week: true, month: true, levels: 3, deaths: 40 });
+  const st = await statsLib.read(db, 1);
+  ok(st.players === 1 && st.deaths === 40 && st.challenges === 1 && st.days[0].new === 1, `plain Redis: play counts and the challenge backfill work (${JSON.stringify([st.players, st.deaths, st.challenges])})`);
 }
 
 if (failed) { console.log(`\n${failed} failed`); process.exit(1); }

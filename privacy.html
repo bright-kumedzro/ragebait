@@ -17,7 +17,7 @@
 <main>
   <div>
     <h1>Privacy</h1>
-    <p class="lede">The short version: your progress stays on your device. Only if you use <b>Ragebait a friend</b> does the game send anything to a server: the name you type and your challenge scores.</p>
+    <p class="lede">The short version: your progress stays on your device. The game sends our server anonymous play counts, which can’t tell you apart from anyone else. Only if you use <b>Ragebait a friend</b> does it send anything personal: the name you type, with your challenge scores.</p>
   </div>
 
   <section>
@@ -34,26 +34,40 @@
       <li>a random ID made by your device, so the game knows which scores are yours (it isn’t linked to you in any other way);</li>
       <li>which levels the challenge uses, and your deaths and times on them.</li>
     </ul>
-    <p>Anyone with a challenge’s link can see its scoreboard. Challenges and your win record are kept for a year, then deleted automatically. They’re stored in a Redis database run by Upstash.</p>
+    <p>Anyone with a challenge’s link can see its scoreboard. Challenges and your win record are kept for a year, then deleted automatically. They’re stored in a Redis database run by Redis (Redis Cloud, in London), connected through Vercel.</p>
     <p>To delete your challenge data at any time, use <b>Settings → Delete my challenge data</b>. That removes your scores, your accepted challenges and your win record. Challenges you created stay for the people who played them, with your name replaced by “Someone”.</p>
+  </section>
+
+  <section id="counts">
+    <h2>Anonymous play counts</h2>
+    <p>So we can see how many people play, the game sends our server a short note when it opens, comes back into view or goes into the background. The note says only:</p>
+    <ul>
+      <li>whether this is the first time this device has opened the game, and the first time today, this week and this month;</li>
+      <li>when you come back on a later day, how many days it has been since this device first opened the game (so we can see whether people come back);</li>
+      <li>whether the game is running as an app installed on your home screen, the first time it does;</li>
+      <li>how many levels you’ve beaten and how many times you’ve died since the last note.</li>
+    </ul>
+    <p>It contains no player ID, nickname, progress or anything else that could tell your device apart from another. The server doesn’t store the notes: it adds them to running totals (for example “1,204 players” or “57 active today”), which anyone can see on the <a href="./about">About page</a>. The totals are kept in the same database as challenges.</p>
   </section>
 
   <section>
     <h2>What isn’t stored</h2>
-    <p>No analytics, no ads, no tracking, no cookies. The game doesn’t know who you are, and it doesn’t want to. It just wants you to fall in that hole again.</p>
+    <p>No ads, no tracking across sites, no cookies. The game doesn’t know who you are, and it doesn’t want to. It just wants you to fall in that hole again.</p>
   </section>
 
   <section>
     <h2>Other services</h2>
     <ul>
       <li><b>Hosting:</b> the game and its challenge server run on Vercel, which keeps standard server logs (such as IP addresses) for security and operations.</li>
+      <li><b>Visitor statistics:</b> we use <a href="https://vercel.com/docs/analytics/privacy-policy" target="_blank" rel="noopener">Vercel Web Analytics</a> to see how many people visit, which pages they open, which site sent them, and their country, browser and device type. It uses no cookies and stores nothing on your device. Vercel tells visits apart with a code made from your request that is thrown away after 24 hours, so visits can’t be linked across days or to you.</li>
       <li><b>Fonts:</b> the Bungee and Rubik fonts load from Google Fonts, which sees a request from your browser when the page first loads.</li>
     </ul>
     <p>After the first visit, the game is cached on your device and works offline (challenges need a connection).</p>
   </section>
 
-  <p class="meta">Last updated 18 October 2026.</p>
+  <p class="meta">Last updated 19 October 2026.</p>
 </main>
 <footer><a href="./about">About &amp; how to play</a> · <a href="./">Play Ragebait</a></footer>
+<script type="module" src="/src/analytics.js"></script>
 </body>
 </html>

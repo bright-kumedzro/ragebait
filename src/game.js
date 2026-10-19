@@ -7,6 +7,7 @@ import { initInput, readInput, clearInput, setSwap } from './input.js';
 import { initAudio, applyAudio, suspendAudio, sound, setSong } from './audio.js';
 import { save, persist, resetSave, levelSave, isUnlocked, nextUnplayed } from './save.js';
 import * as Compete from './compete.js';
+import * as Metrics from './metrics.js';
 import * as ui from './ui.js';
 
 const $ = id => document.getElementById(id);
@@ -55,6 +56,7 @@ export function boot() {
     suspendAudio(document.hidden);
     if (document.hidden && mode === 'play') pause();
     if (!document.hidden) liveNudge?.(); // coming back refreshes a live challenge view straight away
+    Metrics.flush(document.hidden);
   });
 
   wireButtons();
@@ -62,6 +64,7 @@ export function boot() {
   goTitle();
   last = performance.now();
   requestAnimationFrame(frame);
+  Metrics.flush();
 
   const invite = new URLSearchParams(location.search).get('challenge');
   if (invite && Compete.available()) { history.replaceState(null, '', location.pathname); openChallenge(invite); }

@@ -1,5 +1,6 @@
 import { CHALLENGE_LEVELS } from '../../src/config.js';
 import { LEVELS } from '../../src/levels/index.js';
+import { count } from './stats.js';
 
 // Data model (every key starts with "rb:" so the database can be shared): hash rb:ch:<id> holds `meta`, a
 // `j:<playerId>` field per player who accepted (started playing) and a `p:<playerId>` field per player who
@@ -77,6 +78,7 @@ export async function createChallenge(db, { name, p, levels, hashes }) {
     const id = newId();
     if (await db.hsetnx(chKey(id), 'meta', meta)) {
       await db.expire(chKey(id), TTL);
+      await count(db, 'challenges');
       return present(id, { meta }, p);
     }
   }
@@ -116,6 +118,7 @@ export async function submitScore(db, { id, name, p, deaths, times }) {
       await db.lpush(plKey(p), id);
       await db.ltrim(plKey(p), 0, RECORD_SIZE - 1);
       await db.expire(plKey(p), TTL);
+      await count(db, 'finishes');
     }
   }
   return viewChallenge(db, id, p);

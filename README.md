@@ -27,7 +27,8 @@ npm run preview    # serve dist/ locally
 | `node scripts/generate-levels.mjs [chapters]` | Builds chapters 6-20 into `src/levels/ch6.js` … `ch20.js` (see "Generated chapters" below). Seeded, so a re-run gives the same levels. Overwrites those files. |
 | `npm run check` | Proves every level can be beaten: a search over held inputs, run on the real sim, has to reach the door. Also catches map typos (uneven rows, unknown characters, traps naming groups or marks that aren't on the map). Pass level ids or chapter numbers to check only those: `node scripts/check-levels.mjs 2-3 7`. Run it after editing levels. All 200 take a few minutes. |
 | `node scripts/smoke-test.mjs` | Runs `dist/` in your installed Chrome, headless. It expects Chrome at the default Windows path; elsewhere, set `CHROME_PATH`. Fails on console errors; beats level 1 with the checker's route on a phone, a desktop and a portrait screen; checks the touch buttons steer and jump; opens the pause, level and settings screens; plays a whole challenge between two players with separate saves (create, pick 3 levels, play them, open the invite link, die once, lose, and check both sides see the right result and the win record); and screenshots every level to `artifact/shots/levels/`. Run `npm run build` first. |
-| `node scripts/test-api.mjs` | Tests the challenge API against the in-memory store: validation, one score per player, ranking, win records, deleting a player's data and the share page. Run it after changing `api/`. |
+| `node scripts/test-api.mjs` | Tests the challenge and stats APIs against the in-memory store (and through the plain-Redis adapter): validation, one score per player, ranking, win records, deleting a player's data, the share page and the play counts. Run it after changing `api/`. |
+| `node scripts/stats.mjs [days]` | Prints the live site's play counts: totals, day-1/7/30 retention, and a row per day. |
 | `node scripts/make-og.mjs` | Redraws `public/og.png`, the link-preview image, from the real game. Run `npm run build` first. |
 | `npm run build:artifact` | Bundles everything into `artifact/ragebait.html`, a single self-contained page for a shareable claude.ai preview. |
 
@@ -50,6 +51,10 @@ src/
   ui.js            menus, HUD, toasts and icons (DOM)
   game.js          game flow: levels, deaths, respawns, wins, challenges, saving
   compete.js       challenge API calls, anonymous player ID, local challenge progress, sharing
+  metrics.js       the anonymous play-count report (see "How it's doing")
+  analytics.js     Vercel Web Analytics, on the live site only
+  periods.js       the UTC day, week and month, shared by the game and the stats API
+  about.js         the About page's public play counts
   save.js          localStorage progress
   tokens.css       palette and type shared by the game (style.css) and the pages (page.css)
 about.html         /about: how to play, chapters, installing
@@ -58,6 +63,7 @@ privacy.html       /privacy: what's stored (only local progress)
 api/               Vercel functions
   challenge.js     create a challenge, join it, post a score, read a scoreboard or a player's win record, delete a player's data
   share.js         /c/<id> share page with Open Graph tags ("Ama is trying to ragebait you"), which forwards to the game
+  stats.js         anonymous play counts: a device's report in, public totals and per-day rows out
   _lib/            challenge rules and the Redis store (in-memory when there's no database)
 ```
 
@@ -149,6 +155,16 @@ A level can also set:
 - `button: 'Don’t press'`: a corner button that fires `ui: 'button'` traps. Add `check: { ui: ['button'] }` if the level needs it pressed.
 
 Then run `npm run check` to confirm the level can be beaten. Run speed, jump height and gravity are in `src/config.js`: a held jump rises about 2.9 tiles and carries about 4 tiles at full speed, so a 3-high wall can't be jumped and a 3-wide gap can.
+
+## How it's doing
+
+Three ways to see how the game is doing:
+
+- **The About page** shows public totals: deaths across all players, players, players this week, levels beaten and challenges made.
+- **`node scripts/stats.mjs`** prints everything: players, installs, active today, this week and this month, levels beaten, deaths, challenges, **retention** (how many players come back 1, 7 and 30 days after their first day), and a row per day.
+- **Vercel Web Analytics** (in the Vercel dashboard, under the project's Analytics tab) shows page visits, where visitors came from, countries and devices. It has to be switched on once in that tab.
+
+The play counts are anonymous: each device sends only "first time ever / today / this week / this month", days since it first played, whether it's installed, and how many levels it beat and deaths it took since its last report. The server adds these to running totals in the same Redis database as challenges (`rb:st:*` keys); nothing identifies a device. `privacy.html` explains this to players. Counting began with this feature, so earlier players aren't included.
 
 ## Generated chapters
 

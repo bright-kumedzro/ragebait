@@ -259,6 +259,17 @@ if (!only) for (const [name, vp] of VIEWS) {
   await page.close();
 }
 
+// About page: the public play counts show up (everything above played in one browser profile per page, so at
+// least one player has been counted)
+{
+  const page = await open('about', { width: 390, height: 844, isMobile: true });
+  await page.goto('http://localhost:4790/about', { waitUntil: 'networkidle0' });
+  const shown = await page.$eval('#stats', s => (s.hidden ? null : s.querySelector('[data-k="players"]').textContent));
+  if (!shown || Number(shown) < 1) errors.push(`[about] the play counts should show at least 1 player (got ${shown})`);
+  await page.screenshot({ path: 'artifact/shots/page-about.png', fullPage: true });
+  await page.close();
+}
+
 // every level, as it first appears
 {
   const page = await open('levels', { width: 1280, height: 720 });

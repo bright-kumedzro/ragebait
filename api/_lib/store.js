@@ -41,6 +41,11 @@ export function redisAdapter(conn) {
     },
     async hsetnx(k, f, v) { return (await (await conn()).hSetNX(k, f, JSON.stringify(v))) ? 1 : 0; },
     async hdel(k, ...fs) { return (await conn()).hDel(k, fs); },
+    async hincrby(k, f, by) { return (await conn()).hIncrBy(k, f, by); },
+    async scan(cursor, { match, count }) {
+      const r = await (await conn()).scan(Number(cursor), { MATCH: match, COUNT: count });
+      return [String(r.cursor), r.keys];
+    },
     async del(k) { return (await conn()).del(k); },
     async expire(k, s) { return (await conn()).expire(k, s); },
     async lpush(k, v) { return (await conn()).lPush(k, v); },
@@ -61,6 +66,16 @@ const memory = {
     return 1;
   },
   async hdel(k, ...fs) { const h = mem.get(k); let n = 0; for (const f of fs) n += h?.delete(f) ? 1 : 0; return n; },
+  async hincrby(k, f, by) {
+    if (!mem.has(k)) mem.set(k, new Map());
+    const h = mem.get(k), v = (Number(h.get(f)) || 0) + by;
+    h.set(f, v);
+    return v;
+  },
+  async scan(_, { match }) { // one pass; only trailing-* patterns
+    const prefix = match.replace(/\*$/, '');
+    return ['0', [...mem.keys()].filter(k => k.startsWith(prefix))];
+  },
   async del(k) { return mem.delete(k) ? 1 : 0; },
   async expire() { return 1; },
   async lpush(k, v) { mem.set(k, [v, ...list(k)]); return list(k).length; },

@@ -8,6 +8,9 @@ const defaults = () => ({
   settings: { sound: true, music: true, haptics: true, swap: false },
   tips: {},         // one-off hints already shown
   stats: { jumps: 0, clears: 0, seconds: 0 },
+  // last anonymous report (metrics.js); firstDay is the UTC day this device was first counted, app whether it has
+  // been counted as an installed app
+  metrics: { counted: false, firstDay: '', day: '', week: '', month: '', sent: { levels: 0, deaths: 0 }, app: false },
   player: { id: '', name: '' }, // anonymous challenge identity, per device
   challenges: {},   // challenge id -> { by, levels, at, deaths: [per level], times: [per level], cur: { deaths, time }, sent, joined, seen }
 });
@@ -35,9 +38,10 @@ export function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* ignore */ }
 }
 
-// Keeps the challenge identity and progress: they belong to scores on the server, not the campaign.
+// Keeps the challenge identity and progress (they belong to scores on the server, not the campaign), and that this
+// device has been counted, so a reset isn't a new player.
 export function resetSave() {
-  const keep = { player: save.player, challenges: save.challenges };
+  const keep = { player: save.player, challenges: save.challenges, metrics: { ...save.metrics, sent: { levels: 0, deaths: 0 } } };
   for (const k of Object.keys(save)) delete save[k];
   Object.assign(save, defaults(), keep);
   persist();
