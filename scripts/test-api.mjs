@@ -13,7 +13,7 @@ const levels = ['1-4', '2-7', '3-2'], hashes = ['0433dd85', '55362ae0', 'd4ecdde
 ok((await get('ping')).ok === true, 'ping says challenges are set up when there is a store');
 ok((await post({ action: 'create', name: '', p: A, levels, hashes })).status === 400, 'a name is required');
 ok((await post({ action: 'create', name: 'Ama', p: A, levels: ['1-4', '1-4', '3-2'], hashes })).status === 400, 'levels must be different');
-ok((await post({ action: 'create', name: 'Ama', p: A, levels: ['1-4', '9-9', '3-2'], hashes })).status === 400, 'levels must exist');
+ok((await post({ action: 'create', name: 'Ama', p: A, levels: ['1-4', '99-1', '3-2'], hashes })).status === 400, 'levels must exist');
 ok((await post({ action: 'create', name: 'Ama', p: A, levels: levels.slice(0, 2), hashes })).status === 400, 'exactly 3 levels');
 
 const ch = await post({ action: 'create', name: '  Ama <b> ', p: A, levels, hashes });
