@@ -9,7 +9,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Ragebait">
   <meta property="og:title" content="Ragebait">
-  <meta property="og:description" content="A platformer where every level lies to you. 200 levels, one door each, and none of them play fair.">
+  <meta property="og:description" content="A platformer where every level lies to you. 210 levels, one door each, and none of them play fair.">
   <meta property="og:url" content="https://playragebait.vercel.app/">
   <meta property="og:image" content="https://playragebait.vercel.app/og.png">
   <meta property="og:image:width" content="1200">
@@ -34,6 +34,7 @@
   </div>
   <div class="hud-right">
     <button class="fake-skip" id="btnFakeSkip" hidden>Skip level <span aria-hidden="true">▸▸</span></button>
+    <div class="deaths keys" id="hudKeys" aria-label="Keys collected" hidden><i data-icon="key" aria-hidden="true"></i><span id="hudKeyCount">0/0</span></div>
     <div class="deaths" id="hudDeaths" aria-label="Deaths on this level"><i data-icon="skull" aria-hidden="true"></i><span id="hudDeathCount">0</span></div>
   </div>
 </div>

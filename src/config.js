@@ -84,21 +84,39 @@ export const CHAPTERS = [
     theme: { air: '#ECEFF1', solid: '#37474F', ink: '#0B1215', door: '#E53935', ui: '#263238' } },
   { id: 'end', name: 'The End?', blurb: 'Is it, though',
     theme: { air: '#0B0B0F', solid: '#F5F5F0', ink: '#FFD23F', door: '#FF3864', ui: '#E6E6E0', paper: '#F5F5F0', text: '#0B0B0F', accent: '#D62F55' } },
+  { id: 'lost', name: 'Lost & Found', blurb: 'Find the keys. Then find the door. Then find out',
+    theme: { air: '#F3EEDF', solid: '#2F4858', ink: '#1B1B1B', door: '#F6AE2D', ui: '#2F4858' } },
 ];
 
-// Said when you die. Picked at random, never the same twice in a row.
+// Said when you die: [line, sticker]. Picked at random, never the same twice in a row. The sticker is an emoji that
+// pops up with the line.
 export const TAUNTS = [
-  'Gotcha.', 'Skill issue.', 'You trusted it?', 'Predictable.', 'lol', 'Again.', 'Character development.',
-  'That one was on you.', 'Nope.', 'So close. (Not really.)', 'Respawn speedrun.', 'Have you tried not dying?',
-  'Bold strategy.', 'It wasn’t luck.', 'Classic.', 'The door says hi.', 'Deep breaths.', 'Rage is temporary.',
+  ['Gotcha.', '😈'], ['Skill issue.', '🤡'], ['You trusted it?', '🫠'], ['Predictable.', '🥱'], ['lol', '😂'], ['Again.', '🔁'],
+  ['Character development.', '📈'], ['That one was on you.', '👉'], ['Nope.', '🙅'], ['So close. (Not really.)', '🤏'],
+  ['Respawn speedrun.', '⏱️'], ['Have you tried not dying?', '🤔'], ['Bold strategy.', '🧠'], ['It wasn’t luck.', '🎲'],
+  ['Classic.', '💀'], ['The door says hi.', '🚪'], ['Deep breaths.', '🧘'], ['Rage is temporary.', '😤'],
+  ['Git gud.', '🎮'], ['Caught in 4K.', '📸'], ['Task failed successfully.', '✅'], ['Mission failed. We’ll get ’em next time.', '🫡'],
+  ['Press F to pay respects.', '🫡'], ['NPC behaviour.', '🤖'], ['Delulu jump.', '🦋'], ['Main character? Side quest.', '🎬'],
+  ['It’s giving… gravity.', '💅'], ['Not the vibe.', '🙃'],
 ];
 
-// The result card picks a line by how many deaths the level took.
+// Said instead, the moment your all-time death count hits one of these.
+export const DEATH_MILESTONES = {
+  67: ['6… 7', '🤷'], 100: ['100 deaths. Press F.', '🫡'], 404: ['404: skill not found.', '🔍'],
+  1000: ['1,000 deaths. Touch grass?', '🌱'], 9001: ['It’s over 9,000!', '💥'],
+};
+
+// The result card picks a line by how many deaths the level took: [up to this many, [line, sticker], …].
 export const CLEAR_LINES = [
-  [0, 'First try? Suspicious.'],
-  [1, 'Only one death. Who hurt you?'],
-  [4, 'Not bad. Not good either.'],
-  [10, 'You got there. Eventually.'],
-  [25, 'That was painful to watch.'],
-  [Infinity, 'Persistence is a personality.'],
+  [0, ['First try? Suspicious.', '🤨'], ['Ate. Left no crumbs.', '💅'], ['Understood the assignment.', '📝']],
+  [1, ['Only one death. Who hurt you?', '🫠']],
+  [4, ['Not bad. Not good either.', '😐'], ['Mid. Respectfully.', '🫤']],
+  [10, ['You got there. Eventually.', '🐢'], ['Task failed successfully.', '✅']],
+  [25, ['That was painful to watch.', '😬'], ['Rent free in your head now.', '🧠']],
+  [Infinity, ['Persistence is a personality.', '🫡'], ['We’ll get ’em next ti… oh, you did.', '🎖️']],
 ];
+export function clearLine(deaths) {
+  const [, ...lines] = CLEAR_LINES.find(([n]) => deaths <= n);
+  const [text, sticker] = lines[Math.floor(Math.random() * lines.length)];
+  return `${text} ${sticker}`;
+}

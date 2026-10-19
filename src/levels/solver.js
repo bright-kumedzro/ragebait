@@ -33,10 +33,12 @@ class Heap {
 
 function key(L, s) {
   const p = s.p, q = v => Math.round(v * 4);
+  // time only matters while something is still changing, or a trap that waits for a time hasn't fired yet
   const dynamic = s.pending.length || s.balls.length || s.spawners.some(x => !x.done) || s.door.x !== s.door.tx || s.door.y !== s.door.ty || s.gpos || s.lag
-    || s.movers.some(m => !m.gone && !(m.kind === 'move' && m.done)) || L.timed;
+    || s.movers.some(m => !m.gone && !(m.kind === 'move' && m.done)) || L.timedTraps.some(i => !s.fired[i] || L.traps[i].repeat)
+    || s.keys.some(k => k.x !== k.tx || k.y !== k.ty);
   return [q(p.x), q(p.y), Math.round(p.vx / 3), Math.round(p.vy / 4), p.ground ? 1 : 0, p.jHeld ? 1 : 0, s.grav, s.rev ? 1 : 0,
-    s.fired.join(''), s.revealed, s.lag ? s.inq.join('') : '', s.auto, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
+    s.fired.join(''), s.revealed, s.keys.map(k => (k.got ? 1 : 0)).join(''), s.lag ? s.inq.join('') : '', s.auto, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
 }
 
 // Runs `steps` of one action. Returns the state's status.
@@ -52,14 +54,21 @@ function advance(L, s, a, steps) {
 // ui: names of the level's UI-fired traps to fire at the start (a button the player is meant to press).
 // ghost and corpses: as for createState.
 export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1, ui = [], ghost = null, corpses = [] } = {}) {
-  L.timed ??= L.traps.some(t => t.when.t !== undefined || t.loop || t.every);
+  L.timedTraps ??= L.traps.map((t, i) => (t.when.t !== undefined || t.when.before !== undefined ? i : -1)).filter(i => i >= 0);
   const perChunk = RUN * chunk * STEP;
   const h = s => {
-    const dx = s.door.tx + 0.4 - (s.p.x + PLAYER_W / 2), dy = s.door.ty + 0.7 - (s.p.y + PLAYER_H / 2); // where the door is going
+    // aim for the nearest key still out there, then the door (where it's going, if it's running)
+    let tx = s.door.tx + 0.4, ty = s.door.ty + 0.7, best = Infinity;
+    for (const k of s.keys) {
+      if (k.got) continue;
+      const d = Math.abs(k.tx - (s.p.x + PLAYER_W / 2)) + Math.abs(k.ty - (s.p.y + PLAYER_H / 2)) * 0.6;
+      if (d < best) { best = d; tx = k.tx; ty = k.ty; }
+    }
+    const dx = tx - (s.p.x + PLAYER_W / 2), dy = ty - (s.p.y + PLAYER_H / 2);
     // Traps usually fire as you make progress, and one can send the door far away; without the credit, every
     // state after a trap looks worse than all the states before it and the search drowns in those.
     const fired = s.fired.reduce((n, f) => n + (f === 2), 0);
-    return (Math.abs(dx) + Math.abs(dy) * 0.6) / perChunk - fired * 25;
+    return (Math.abs(dx) + Math.abs(dy) * 0.6) / perChunk - fired * 25 - s.got * 40;
   };
   const start = createState(L, { attempt, ghost, corpses });
   for (const name of ui) fireExternal(L, start, name);

@@ -1,4 +1,4 @@
-// The level list: hand-made chapters 1-5 and generated chapters 6-20 (see scripts/generate-levels.mjs).
+// The level list: hand-made chapters 1-5 and generated chapters 6-21 (see scripts/generate-levels.mjs).
 import { compile } from './compile.js';
 import ch1 from './ch1.js';
 import ch2 from './ch2.js';
@@ -20,8 +20,9 @@ import ch17 from './ch17.js';
 import ch18 from './ch18.js';
 import ch19 from './ch19.js';
 import ch20 from './ch20.js';
+import ch21 from './ch21.js';
 
-export const CHAPTER_LEVELS = [ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12, ch13, ch14, ch15, ch16, ch17, ch18, ch19, ch20];
+export const CHAPTER_LEVELS = [ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12, ch13, ch14, ch15, ch16, ch17, ch18, ch19, ch20, ch21];
 export const LEVELS = CHAPTER_LEVELS.flatMap((list, c) => list.map((def, i) => ({ id: `${c + 1}-${i + 1}`, ch: c, i, def })));
 export const levelIndex = id => LEVELS.findIndex(l => l.id === id);
 

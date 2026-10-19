@@ -6,8 +6,9 @@
 // wall chasing you, auto-run, a ghost of your last try, a fake win, a "Don't press" button). Each level must pass
 // the same proof as the hand-made ones (src/levels/verify.js), and must not be beatable by just holding right; if
 // not, it's rebuilt from the next seed. Seeds are fixed, so running this again gives the same levels.
-// Usage: node scripts/generate-levels.mjs [chapter numbers…]   (default: all of 6-20)
-import { writeFileSync } from 'node:fs';
+// Usage: node scripts/generate-levels.mjs [chapter numbers…] [--keep-linear]   (default: all of 6-21)
+// --keep-linear keeps a chapter file's existing linear levels exactly as they are and only rebuilds its explore levels.
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { compile } from '../src/levels/compile.js';
 import { verifyLevel, holdRightWins } from '../src/levels/verify.js';
 
@@ -22,8 +23,8 @@ function rng32(seed) {
 
 // ---------- the map being drawn ----------
 class Map2 {
-  constructor(w) { this.w = w; this.g = Array.from({ length: H }, () => Array(w).fill('.')); }
-  fill(x0, y0, x1, y1, c) { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (x >= 0 && x < this.w && y >= 0 && y < H) this.g[y][x] = c; }
+  constructor(w, h = H) { this.w = w; this.h = h; this.g = Array.from({ length: h }, () => Array(w).fill('.')); }
+  fill(x0, y0, x1, y1, c) { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (x >= 0 && x < this.w && y >= 0 && y < this.h) this.g[y][x] = c; }
   put(x, y, c) { this.fill(x, y, x, y, c); }
   text() { return this.g.map(r => '      ' + r.join('')).join('\n'); }
 }
@@ -45,15 +46,18 @@ const SAY = {
 };
 
 // ---------- segments ----------
+// makeSegs(F, BOT) gives the segments for a floor whose top row is F and whose slab ends at row BOT (a gap there
+// is a pit to the bottom of the map, or, on an upper floor, a hole down to the floor below).
 // Each takes (r, a, x) and returns { w, draw(m), traps: [...], flags }. x is the segment's first column; the runner
 // arrives from the left on the floor. Traps use group/hidden/mark names from `a`.
-const SEG = {
-  gap: r => { const w = r.int(2, 3); return { w, draw: (m, x) => m.fill(x, F, x + w - 1, H - 1, '.'), traps: () => [] }; },
+function makeSegs(F, BOT) {
+  return {
+  gap: r => { const w = r.int(2, 3); return { w, draw: (m, x) => m.fill(x, F, x + w - 1, BOT, '.'), traps: () => [] }; },
   spikes: r => { const w = r.int(1, 2); return { w, draw: (m, x) => m.fill(x, F - 1, x + w - 1, F - 1, '^'), traps: () => [] }; },
   bump: r => { const w = r.int(1, 2), h = r.int(1, 2); return { w, solidAbove: true, draw: (m, x) => m.fill(x, F - h, x + w - 1, F - 1, '#'), traps: () => [] }; },
   collapse: (r, a) => {
     const w = r.int(2, 3), g = a.group(), byStand = r.chance(0.4);
-    return { w, draw: (m, x) => m.fill(x, F, x + w - 1, H - 1, g),
+    return { w, draw: (m, x) => m.fill(x, F, x + w - 1, BOT, g),
       traps: x => [byStand ? { when: { stand: g }, do: 'fall', g, shake: 0.2 } : { when: { x: x - 2 }, do: 'fall', g, ...say(r, 'fall') }] };
   },
   popspikes: (r, a) => {
@@ -66,32 +70,32 @@ const SEG = {
   },
   cannon: (r, a) => {
     const k = a.mark(), every = r.int(14, 18) / 10, t = r.int(2, 10) / 10;
-    return { w: 4, draw: (m, x) => m.put(x + 3, 1, k), traps: () => [{ when: { t }, do: 'balls', from: k, v: [-5, -2], bounce: 0.85, n: 1, every }] };
+    return { w: 4, draw: (m, x) => m.put(x + 3, F - 5, k), traps: () => [{ when: { t }, do: 'balls', from: k, v: [-5, -2], bounce: 0.85, n: 1, every }] };
   },
   crusher: (r, a) => {
     const g = a.group(), t = r.int(0, 10) / 10;
-    return { w: 2, overhead: true, draw: (m, x) => m.fill(x, 1, x + 1, 2, g),
+    return { w: 2, overhead: true, draw: (m, x) => m.fill(x, F - 5, x + 1, F - 4, g),
       traps: () => [{ when: { t }, do: 'move', g, by: [0, 3], speed: 9, back: true, loop: true, hold: 0.55, spikes: 'd', slam: true }] };
   },
   stones: (r, a) => {
     const d = a.hidden();
-    return { w: 7, draw: (m, x) => { m.fill(x, F, x + 6, H - 1, '.'); m.fill(x + 3, F, x + 4, F, d); },
+    return { w: 7, draw: (m, x) => { m.fill(x, F, x + 6, BOT, '.'); m.fill(x + 3, F, x + 4, F, d); },
       traps: x => [{ when: { x: x - 4, jump: true }, do: 'show', g: d }] };
   },
   crumble: (r, a) => {
     const g1 = a.group(), g2 = a.group();
-    return { w: 8, draw: (m, x) => { m.fill(x, F, x + 7, H - 1, '.'); m.put(x + 2, F, g1); m.put(x + 5, F - 1, g2); },
+    return { w: 8, draw: (m, x) => { m.fill(x, F, x + 7, BOT, '.'); m.put(x + 2, F, g1); m.put(x + 5, F - 1, g2); },
       traps: () => [{ when: { stand: g1 }, do: 'fall', g: g1, shake: 0.25 }, { when: { stand: g2 }, do: 'fall', g: g2, shake: 0.25 }] };
   },
   ferry: (r, a, ch) => {
     const g = a.group(), sink = ch >= 15 && r.chance(0.6);
-    return { w: 9, waits: true, draw: (m, x) => { m.fill(x, F, x + 8, H - 1, '.'); m.fill(x, F, x + 2, F, g); },
+    return { w: 9, waits: true, draw: (m, x) => { m.fill(x, F, x + 8, BOT, '.'); m.fill(x, F, x + 2, F, g); },
       traps: () => [{ when: { stand: g }, do: 'move', g, by: [5, 0], speed: 4.5 },
         ...(sink ? [{ when: { stand: g }, delay: 1.3, do: 'fall', g, shake: 0.25, say: 'Last stop.' }] : [])] };
   },
   pillar: (r, a) => {
     const g = a.group();
-    return { w: 2, solidAbove: true, waits: true, draw: (m, x) => m.fill(x, F, x + 1, H - 1, g),
+    return { w: 2, solidAbove: true, waits: true, draw: (m, x) => m.fill(x, F, x + 1, BOT, g),
       traps: x => [{ when: { x: x - 3 }, do: 'move', g, by: [0, -4], speed: 3, back: true, hold: 1.4 }] };
   },
   bonk: (r, a) => {
@@ -102,25 +106,27 @@ const SEG = {
   fakedoor: () => ({ w: 1, draw: (m, x) => m.put(x, F - 1, 'F'), traps: () => [] }),
   invisbridge: (r, a) => {
     const g1 = a.group(), g2 = a.group();
-    return { w: 7, draw: (m, x) => { m.fill(x, F, x + 6, H - 1, '.'); m.fill(x, F, x + 2, F, g1); m.fill(x + 5, F, x + 6, F, g2); },
+    return { w: 7, draw: (m, x) => { m.fill(x, F, x + 6, BOT, '.'); m.fill(x, F, x + 2, F, g1); m.fill(x + 5, F, x + 6, F, g2); },
       traps: () => [{ when: { touch: g1 }, do: 'reveal', g: g1 }, { when: { touch: g2 }, do: 'reveal', g: g2 }] };
   },
   deadbridge: (r, a) => {
     const d = a.hidden();
     return { w: 14, corpses: x => [[x + 4, F - 1], [x + 9, F - 1]],
-      draw: (m, x) => { m.fill(x, F, x + 13, H - 1, '.'); m.put(x + 4, F, d); m.put(x + 9, F, d); },
+      draw: (m, x) => { m.fill(x, F, x + 13, BOT, '.'); m.put(x + 4, F, d); m.put(x + 9, F, d); },
       traps: () => [{ when: { t: 0 }, do: 'spikes', g: d }] };
   },
   learns: (r, a) => {
     const g = a.group(), d = a.hidden();
-    return { w: 6, once: 'learns', draw: (m, x) => { m.fill(x, F, x + 2, H - 1, g); m.fill(x + 3, F - 1, x + 5, F - 1, d); },
+    return { w: 6, once: 'learns', draw: (m, x) => { m.fill(x, F, x + 2, BOT, g); m.fill(x + 3, F - 1, x + 5, F - 1, d); },
       traps: x => [{ when: { x: x - 2, tries: 'odd' }, do: 'fall', g },
-        { when: { jump: true, zone: [x - 3, 0, x + 1, H - 1], tries: 'even' }, do: 'spikes', g: d, say: 'I learn.' }] };
+        { when: { jump: true, zone: [x - 3, 0, x + 1, BOT], tries: 'even' }, do: 'spikes', g: d, say: 'I learn.' }] };
   },
   checkpoint: () => ({ w: 1, draw: (m, x) => m.put(x, F - 1, 'K'), traps: x => [{ when: { x }, do: 'checkpoint' }] }),
   crash: r => ({ w: 1, once: 'crash', draw: () => {}, traps: x => [{ when: { x }, do: 'crash', seconds: r.int(25, 35) / 10 },
     { when: { ui: 'reload' }, do: 'kill', cause: 'trap', say: 'Did you just try to reload?' }] }),
-};
+  };
+}
+const SEG = makeSegs(F, H - 1);
 
 // Zones switch something on before the segments they wrap and off after them.
 const ZONE = {
@@ -175,6 +181,9 @@ const CH = {
     names: ['Dodgeball', 'Bowling alley', 'Hailstorm', 'Pinball', 'Bouncy', 'Incoming!', 'Cannon fodder', 'Your court', 'Hot potato', 'Ball pit'] },
   19: { pool: ALL, zones: { mirror: 0.15, swap: 0.15, dark: 0.15, lag: 0.15, reverse: 0.15 }, twists: { ghost: 0.15, chaser: 0.15, fakewin: 0.1 },
     names: ['Pop quiz', 'Show your work', 'Multiple choice', 'Trick question', 'Open book', 'Cheat sheet', 'Extra credit', 'Retake', 'Detention', 'Final exam'] },
+  // chapter 21, Lost & Found: every level is an explore level built around one key trick (see SHOWCASE)
+  21: { pool: { spikes: 2, popspikes: 2, collapse: 2, bump: 1 },
+    names: ['Keys, please', 'Run, key, run', 'Not that one', 'Down under', 'Lights out, keys in', 'Collector’s edition', 'Backtrack', 'Haunted house', 'Topsy-turvy house', 'Lost & Found'] },
   20: { pool: ALL, zones: { mirror: 0.2, swap: 0.2, dark: 0.2, lag: 0.2, reverse: 0.2, rotate: 0.15 }, twists: { ghost: 0.2, chaser: 0.15, fakewin: 0.25, button: 0.25 },
     names: ['Almost there', 'The penultimate', 'Credits roll?', 'Post-credits', 'One more', 'Last lap', 'Epilogue', 'The end (not)', 'Seriously, the end', 'The actual end'] },
 };
@@ -289,6 +298,110 @@ function buildLevel(n, i, seed, shrink = 0) {
   return def;
 }
 
+
+// ---------- explore levels ----------
+// Two storeys: a tower to climb on the left, a corridor of traps to the right, and a basement you drop into through
+// one hole and climb out of through another. Keys are spread across the branches, and the door is locked until
+// you have them all, so the level is a trip out and back rather than a run to the right.
+const EH = 20, U = 10, LF = 18; // explore map height; the upper floor's top row; the basement floor's top row
+const UP = makeSegs(U, U + 1), DOWN = makeSegs(LF, EH - 1);
+// (no cannons, looping crushers or ghosts: anything on a timer makes a long out-and-back route far too slow to prove)
+const FLAT = ['spikes', 'popspikes', 'collapse', 'bump', 'invisspikes', 'fakedoor', 'bonk'];
+
+// What each chapter adds to its explore levels.
+const EXTRA = {
+  6: ['surprise'], 7: ['dark'], 8: ['mirrorkeys'], 9: ['invisible'], 10: ['speed'], 11: ['crumbletower'],
+  12: ['lagkeys'], 13: ['dim', 'surprise'], 14: ['corpses', 'surprise'], 15: ['crumbletower', 'runaway'], 16: ['fakekey', 'doorrun'],
+  17: ['reversekeys'], 18: ['surprise', 'runaway'], 19: ['runaway', 'surprise', 'fakekey'], 20: ['runaway', 'fakekey', 'mirrorkeys', 'doorrun'],
+  21: [],
+};
+
+function buildExplore(n, i, seed, opts = {}) {
+  const r = rng32(seed), a = allocators(), W = opts.w || r.int(50, 58);
+  const extras = opts.extras || [...(EXTRA[n] || [])].filter(() => r.chance(0.8));
+  const m = new Map2(W, EH);
+  m.fill(0, U, W - 1, U + 1, '#');
+  m.fill(0, LF, W - 1, EH - 1, '#');
+  const traps = [], def = { name: '', hint: '', map: '', traps };
+  const notes = [];
+
+  // the tower: three steps and a ledge
+  const tx = r.int(3, 5);
+  const plat = (x0, x1, y) => (extras.includes('crumbletower') && y === 6 ? (() => { const g = a.group(); m.fill(x0, y, x1, y, g); traps.push({ when: { stand: g }, do: 'fall', g, shake: 0.3 }); })() : m.fill(x0, y, x1, y, '#'));
+  plat(tx, tx + 2, 8); plat(tx + 5, tx + 7, 6); plat(tx, tx + 2, 4); m.fill(tx + 4, 2, tx + 9, 2, '#');
+
+  // the start, the hole down, and the way back up
+  const sx = r.int(Math.floor(W / 2) - 2, Math.floor(W / 2) + 3);
+  const dh = r.int(tx + 12, sx - 4);
+  m.fill(dh, U, dh + 1, U + 1, '.');
+  const ch = r.int(sx + 6, W - 15);
+  m.fill(ch, U, ch + 3, U + 1, '.');
+  m.fill(ch - 3, 16, ch - 2, 17, '#'); m.fill(ch, 14, ch + 1, 14, '#'); m.fill(ch + 2, 12, ch + 3, 12, '#');
+
+  // traps along the upper corridor (either side of the way up) and in the basement
+  const pool = Object.keys(CH[n]?.pool || {}).filter(k => FLAT.includes(k));
+  const kinds = pool.length ? pool : ['spikes', 'popspikes', 'collapse'];
+  const place = (segs, k, x0, x1) => {
+    const seg = segs[k](r, a, n);
+    if (seg.w + 4 > x1 - x0) return false;
+    const x = r.int(x0 + 2, x1 - seg.w - 2);
+    seg.draw(m, x); traps.push(...seg.traps(x)); notes.push(k);
+    return true;
+  };
+  const upperSpans = [[sx + 2, ch - 4], [ch + 5, W - 5]];
+  for (const [x0, x1] of upperSpans) if (r.chance(0.85)) place(UP, r.pick(kinds), x0, x1);
+  const baseKinds = extras.includes('invisible') ? ['invisspikes', 'invisbridge', ...kinds] : [...kinds, 'gap'];
+  const baseLeft = r.chance(0.5); // which end of the basement the key is at
+  if (baseLeft) place(DOWN, r.pick(baseKinds), 4, dh - 2);
+  else place(DOWN, r.pick(baseKinds), ch + 5, W - 4);
+
+  // keys and the door
+  const spots = { top: [tx + 8, 1], right: [W - 3, U - 1], base: baseLeft ? [2, LF - 1] : [W - 3, LF - 1] };
+  const doorAt = opts.door || r.pick(['ledge', 'start', 'start', 'basement']);
+  let keySpots = doorAt === 'ledge' ? ['right', 'base'] : r.chance(i >= 5 || n >= 14 ? 0.75 : 0.3) ? ['top', 'right', 'base'] : r.chance(0.5) ? ['top', 'right'] : ['top', 'base'];
+  if (opts.keys) keySpots = opts.keys;
+  for (const k of keySpots) m.put(...spots[k], '*');
+  const doorSpot = doorAt === 'ledge' ? [tx + 6, 1] : doorAt === 'start' ? [sx - 2, U - 1] : [Math.round((dh + ch) / 2), LF - 1];
+  m.put(...doorSpot, 'D');
+  m.put(sx, U - 1, 'P');
+  notes.unshift(`keys: ${keySpots.join(', ')}; door: ${doorAt}`);
+
+  // the chapter's twist on exploring; extras go on the nearest empty bit of floor, never over a trap
+  const keyCount = keySpots.length;
+  const putFree = (x, y, c) => {
+    for (const dx of [0, 1, -1, 2, -2, 3, -3, 4, -4]) {
+      const cx = x + dx;
+      if (m.g[y]?.[cx] === '.' && m.g[y + 1]?.[cx] === '#') { m.put(cx, y, c); return; }
+    }
+    throw new Error('no room for an extra');
+  };
+  if (extras.includes('surprise')) { const d = a.hidden(); putFree(sx + 1, U - 1, d); traps.push({ when: { keys: 1 }, do: 'spikes', g: d, say: 'Surprise.' }); }
+  if (extras.includes('dark')) traps.push({ when: { t: 0 }, do: 'dark', radius: 4.4 });
+  if (extras.includes('dim')) traps.push({ when: { t: 0 }, do: 'dark', radius: 5.5 });
+  if (extras.includes('ghost')) def.ghost = 1.5;
+  if (extras.includes('corpses')) def.corpses = true;
+  if (extras.includes('speed')) traps.push({ when: { t: 0.5 }, do: 'speed', factor: 1.4, say: 'Zoom.' });
+  if (extras.includes('mirrorkeys')) { traps.push({ when: { keys: 1 }, do: 'mirror', say: 'Mirror time.' }); if (keyCount > 2) traps.push({ when: { keys: 2 }, do: 'rotate', say: 'Upside down.' }); }
+  if (extras.includes('lagkeys')) { traps.push({ when: { keys: 1 }, do: 'lag', seconds: 0.15, say: 'Ping: 999 ms' }); traps.push({ when: { keys: keyCount }, do: 'swap', say: 'Wait.' }); }
+  if (extras.includes('reversekeys')) { traps.push({ when: { keys: 1 }, do: 'reverse', say: 'Left is right.' }); if (keyCount > 2) traps.push({ when: { keys: 2 }, do: 'reverse', say: 'Changed my mind.' }); }
+  if (extras.includes('fakekey')) { putFree(sx + 4, U - 1, '&'); notes.push('fake key'); }
+  if (extras.includes('runaway') && keySpots.includes('right')) {
+    const k = keySpots.indexOf('right'), q = a.mark();
+    m.put(baseLeft ? W - 3 : 2, LF - 1, q);
+    traps.push({ when: { zone: [W - 6, U - 3, W - 1, U - 1] }, do: 'keymove', k, to: q, speed: 10, say: 'Catch me.' });
+    notes.push('runaway key');
+  }
+  if (extras.includes('doorrun') && doorAt !== 'start') {
+    const q = a.mark();
+    m.put(sx - 3, U - 1, q);
+    traps.push({ when: { keys: keyCount, near: 2.5 }, do: 'door', to: q, say: 'Back where you started.' });
+    notes.push('door runs home');
+  }
+  def.map = m.text();
+  def.about = `explore; ${notes.join(', ')}${extras.length ? `; ${extras.join(', ')}` : ''}`;
+  return def;
+}
+
 // ---------- writing level files ----------
 function lit(v) {
   if (Array.isArray(v)) return `[${v.map(lit).join(', ')}]`;
@@ -306,22 +419,46 @@ function levelSource(def) {
   return lines.join('\n');
 }
 
-const only = process.argv.slice(2).map(Number);
+const EXPLORE = [2, 5, 8]; // levels 3, 6 and 9 of chapters 6-20; every level of chapter 21
+const SHOWCASE = [
+  { keys: ['top', 'right'], door: 'start', extras: [] },
+  { keys: ['right', 'base'], door: 'start', extras: ['runaway'] },
+  { keys: ['top', 'right'], door: 'basement', extras: ['fakekey'] },
+  { keys: ['base'], door: 'ledge', extras: ['surprise'] },
+  { keys: ['top', 'right', 'base'], door: 'start', extras: ['dark'] },
+  { keys: ['top', 'right', 'base'], door: 'start', extras: ['surprise', 'mirrorkeys'] },
+  { keys: ['right', 'base'], door: 'ledge', extras: ['doorrun', 'surprise'] },
+  { keys: ['top', 'right', 'base'], door: 'start', extras: ['dim', 'fakekey'] },
+  { keys: ['top', 'right', 'base'], door: 'basement', extras: ['mirrorkeys', 'reversekeys'] },
+  { keys: ['top', 'right', 'base'], door: 'ledge', extras: ['runaway', 'fakekey', 'surprise'], w: 58 },
+];
+export { buildExplore, buildLevel };
+const args = process.argv.slice(2), keepLinear = args.includes('--keep-linear');
+const only = process.env.RB_NO_GEN ? [-1] : args.filter(a => !a.startsWith('--')).map(Number);
+// a chapter file's level blocks, as text, so kept levels are written back exactly as they were (comments included)
+const blocksOf = src => src.slice(src.indexOf('export default [') + 'export default ['.length, src.lastIndexOf('];'))
+  .split(/\n(?=  \{\n    name:)/).map(b => b.replace(/^\n/, '').replace(/\n$/, '')).filter(b => b.trim());
 const t0 = performance.now();
 for (const n of Object.keys(CH).map(Number)) {
   if (only.length && !only.includes(n)) continue;
   const spec = CH[n], r = rng32(n * 7919), hints = [...HINTS].sort(() => r.next() - 0.5);
-  const out = [];
+  const out = [], file = `src/levels/ch${n}.js`;
+  const kept = keepLinear && existsSync(file) ? blocksOf(readFileSync(file, 'utf8')) : null;
   for (let i = 0; i < 10; i++) {
+    if (kept && n !== 21 && !EXPLORE.includes(i) && kept[i]) { out.push(kept[i]); continue; }
     let def = null, tries = 0, why = '';
     for (let shrink = 0; shrink <= 2 && !def; shrink++) {
       for (let k = 0; k < 25 && !def; k++) {
         tries++;
         let d;
-        try { d = buildLevel(n, i, n * 100003 + i * 1009 + k * 31 + shrink * 7); } catch (e) { why = e.message; continue; }
-        const L = compile(d, `${n}-${i + 1}`);
+        const seed = n * 100003 + i * 1009 + k * 31 + shrink * 7;
+        let L;
+        try {
+          d = n === 21 ? buildExplore(n, i, seed, SHOWCASE[i]) : EXPLORE.includes(i) ? buildExplore(n, i, seed) : buildLevel(n, i, seed, shrink);
+          L = compile(d, `${n}-${i + 1}`);
+        } catch (e) { why = e.message; continue; }
         if (holdRightWins(L, d)) { why = 'beatable by holding right'; continue; }
-        const v = verifyLevel(L, d, { maxNodes: 60000 });
+        const v = verifyLevel(L, d, { maxNodes: n === 21 || EXPLORE.includes(i) ? 200000 : 60000 });
         if (!v.ok) { why = v.reason; continue; }
         def = d;
       }
@@ -329,11 +466,11 @@ for (const n of Object.keys(CH).map(Number)) {
     if (!def) throw new Error(`chapter ${n} level ${i + 1}: no good layout after ${tries} tries (last: ${why})`);
     def.name = spec.names[i];
     def.hint = i === 9 ? r.pick(BOSS_HINTS) : hints[i];
-    out.push(def);
+    out.push(levelSource(def));
     process.stdout.write(`${n}-${i + 1} ${def.name} (${tries} ${tries === 1 ? 'try' : 'tries'}): ${def.about}\n`);
   }
   const src = `// Chapter ${n}: generated by scripts/generate-levels.mjs (remixing the traps from chapters 1-5). Edit freely, then\n`
-    + `// run \`npm run check\`; re-running the generator overwrites this file.\nexport default [\n${out.map(levelSource).join('\n')}\n];\n`;
-  writeFileSync(`src/levels/ch${n}.js`, src);
+    + `// run \`npm run check\`; re-running the generator overwrites this file.\nexport default [\n${out.join('\n')}\n];\n`;
+  writeFileSync(file, src);
 }
 console.log(`done in ${((performance.now() - t0) / 1000).toFixed(0)} s`);

@@ -13,7 +13,7 @@ export function compile(def, id = '?') {
   const rows = def.map.split('\n').map(r => r.trim()).filter(r => r.length);
   const h = rows.length, w = Math.max(...rows.map(r => r.length));
   const grid = new Uint8Array(w * h), cellGroup = new Array(w * h).fill('');
-  const groups = {}, marks = {}, fakeDoors = [], flags = [];
+  const groups = {}, marks = {}, fakeDoors = [], flags = [], keys = [], fakeKeys = [];
   let start = null, door = null;
   const group = ch => (groups[ch] ||= { solid: [], hidden: [] });
 
@@ -26,6 +26,8 @@ export function compile(def, id = '?') {
       else if (c === 'P') start = { x: cx + 0.5 - PLAYER_W / 2, y: cy + 1 - PLAYER_H };
       else if (c === 'D') { const [x, y] = doorAt(cx, cy); door = { x, y }; }
       else if (c === 'F') { const [x, y] = doorAt(cx, cy); fakeDoors.push({ x, y }); }
+      else if (c === '*') keys.push({ x: cx + 0.5, y: cy + 0.55 });
+      else if (c === '&') fakeKeys.push({ x: cx + 0.5, y: cy + 0.55 });
       else if (c === 'K') { flags.push({ x: cx, y: cy, mark: true }); marks.K ||= [cx, cy]; }
       else if (c >= 'a' && c <= 'z') { grid[i] = SOLID; group(c).solid.push([cx, cy]); cellGroup[i] = c; }
       else if (c >= '1' && c <= '9') { group(c).hidden.push([cx, cy]); cellGroup[i] = c; }
@@ -59,6 +61,10 @@ export function compile(def, id = '?') {
     if (wh.after !== undefined && !(wh.after >= 0 && wh.after < def.traps.length)) fail(`trap ${n} when.after is out of range`);
     if (tr.g) for (const ch of tr.g) if (!groups[ch]) fail(`trap ${n} names group ${ch}, which isn't on the map`);
     if (tr.do === 'door') { const [cx, cy] = mark(tr.to, `trap ${n} to`); tr.to = doorAt(cx, cy); }
+    if (tr.do === 'keymove') {
+      const [cx, cy] = mark(tr.to, `trap ${n} to`); tr.to = [cx + 0.5, cy + 0.55];
+      if (!(tr.k >= 0 && tr.k < keys.length)) fail(`trap ${n} moves key ${tr.k}, but the map has ${keys.length}`);
+    }
     if (tr.do === 'balls') {
       const f = mark(tr.from, `trap ${n} from`);
       tr.from = typeof t.from === 'string' ? [f[0] + 0.5, f[1] + 1 - (tr.r || BALL_R)] : f;
@@ -70,5 +76,5 @@ export function compile(def, id = '?') {
   // groups drawn as empty air until something reveals them (they're solid all along)
   const invisible = traps.filter(t => t.do === 'reveal').map(t => t.g).join('');
 
-  return { id, name: def.name, invisible, flags, fakeWin: def.fakeWin || 0, corpses: !!def.corpses, ghost: def.ghost || 0, button: def.button || '', noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
+  return { id, name: def.name, invisible, flags, keys, fakeKeys, fakeWin: def.fakeWin || 0, corpses: !!def.corpses, ghost: def.ghost || 0, button: def.button || '', noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
 }

@@ -14,8 +14,11 @@ export function verifyLevel(L, def, { maxNodes } = {}) {
   const opts = { ui: def.check?.ui || [], corpses: def.check?.corpses || [] };
   const notes = [];
   let first = null, nodes = 0;
+  // big maps with keys don't need frame-perfect inputs: searching in bigger steps finds long routes much faster
+  const chunks = L.keys.length || L.h > 12 ? [12, 8] : [8, 12];
+  const search = o => { let res; for (const chunk of chunks) { res = solve(L, { ...o, chunk, ...(maxNodes ? { maxNodes } : {}) }); if (res.ok) break; } return res; };
   for (const attempt of attempts) {
-    const res = solve(L, { attempt, ...opts, ...(maxNodes ? { maxNodes } : {}) });
+    const res = search({ attempt, ...opts });
     nodes += res.nodes;
     if (!res.ok) return { ok: false, reason: `no way through found on attempt ${attempt} (${res.nodes} states searched)`, nodes };
     if (!replay(L, res.actions, res.chunk, attempt, opts)) return { ok: false, reason: `the route for attempt ${attempt} didn't replay (the sim isn't deterministic)`, nodes };
@@ -23,7 +26,7 @@ export function verifyLevel(L, def, { maxNodes } = {}) {
       first = res;
       if (L.ghost) {
         const ghost = { path: pathOf(L, res.actions, res.chunk), delay: Math.round(L.ghost / STEP) };
-        const g = solve(L, { attempt: 2, ...opts, ghost, ...(maxNodes ? { maxNodes } : {}) });
+        const g = search({ attempt: 2, ...opts, ghost });
         nodes += g.nodes;
         if (!g.ok) return { ok: false, reason: `no way through on attempt 2 with the first attempt's ghost chasing (${g.nodes} states searched)`, nodes };
         notes.push('and with its own ghost chasing');

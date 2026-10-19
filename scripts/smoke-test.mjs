@@ -259,6 +259,26 @@ if (!only) for (const [name, vp] of VIEWS) {
   await page.close();
 }
 
+// explore levels: a route through 21-1 picks up every key (the HUD counts them) and only then gets through the door
+{
+  const page = await open('explore', { width: 1280, height: 720 });
+  const i = LEVELS.findIndex(l => l.id === '21-1'), L = compile(LEVELS[i].def, '21-1');
+  const r = solve(L, { chunk: 12, maxNodes: 300000 });
+  if (!r.ok) errors.push('[explore] no route through 21-1');
+  else {
+    await page.evaluate((i, steps) => window.__rb.play(i, steps), i, toSteps(r.actions, r.chunk));
+    await page.waitForFunction(() => window.__rb.state.keys >= 1, { timeout: 20000 }).catch(() => errors.push('[explore] no key picked up on 21-1'));
+    await wait(200);
+    await page.screenshot({ path: 'artifact/shots/explore-key.png' });
+    const hud = await page.$eval('#hudKeys', el => (el.hidden ? '' : el.textContent));
+    if (!/1\/2/.test(hud)) errors.push(`[explore] the key counter should read 1/2 after the first key (got "${hud}")`);
+    await page.waitForFunction(() => window.__rb.state.mode === 'done', { timeout: 40000 }).catch(() => errors.push('[explore] 21-1 was not finished'));
+    const k = await page.evaluate(() => window.__rb.state.keys);
+    if (k !== L.keys.length) errors.push(`[explore] finished 21-1 holding ${k} of ${L.keys.length} keys`);
+  }
+  await page.close();
+}
+
 // About page: the public play counts show up (everything above played in one browser profile per page, so at
 // least one player has been counted)
 {

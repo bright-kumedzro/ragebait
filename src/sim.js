@@ -37,6 +37,9 @@ export function createState(L, { attempt = 1, ghost = null, corpses = [] } = {})
     swap: false,        // air and solid colours swapped (drawing only)
     dark: 0,            // only this many tiles around the runner are lit (drawing only); 0 = lights on
     rot: false,         // the view is turned upside down (drawing only)
+    keys: L.keys.map(k => ({ x: k.x, y: k.y, tx: k.x, ty: k.y, got: false })), // the door opens once all are collected
+    got: 0,
+    atDoor: false,      // touching the locked door (so "locked" is said once per visit, not every step)
     ghost: L.ghost ? ghost : null,
     gpos: null,         // where the ghost is now
     corpses: bodies,
@@ -64,7 +67,7 @@ export function createState(L, { attempt = 1, ghost = null, corpses = [] } = {})
 
 // A fast copy for the solver (structuredClone works too, but is several times slower). Events aren't copied.
 export function cloneState(s) {
-  const c = { ...s, grid: s.grid.slice(), p: { ...s.p }, door: { ...s.door }, fired: s.fired.slice(), held: s.held.slice(), inq: s.inq.slice(), events: [] };
+  const c = { ...s, grid: s.grid.slice(), p: { ...s.p }, door: { ...s.door }, fired: s.fired.slice(), held: s.held.slice(), inq: s.inq.slice(), keys: s.keys.map(k => ({ ...k })), events: [] };
   c.movers = s.movers.map(m => ({ ...m, legs: m.legs && m.legs.map(l => l.slice()) }));
   c.spikes = s.spikes.map(k => ({ ...k }));
   c.balls = s.balls.map(b => ({ ...b }));
@@ -251,6 +254,7 @@ function touchesHazard(L, s) {
     if ((b.x - nx) ** 2 + (b.y - ny) ** 2 < (b.r - 0.08) ** 2) return 'ball';
   }
   for (const f of L.fakeDoors) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, f.x + 0.15, f.y + 0.2, 0.7, 1.2)) return 'bite';
+  for (const f of L.fakeKeys) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, f.x - 0.28, f.y - 0.32, 0.56, 0.64)) return 'fakekey';
   if (s.gpos && overlap(p.x, p.y, PLAYER_W, PLAYER_H, s.gpos[0] + 0.1, s.gpos[1] + 0.12, PLAYER_W - 0.2, PLAYER_H - 0.2)) return 'ghost';
   const out = s.grav > 0 ? p.y > L.h + 1 : p.y + PLAYER_H < -1;
   return out ? 'fall' : '';
@@ -304,6 +308,19 @@ function stepDoor(s) {
 }
 const doorMoving = s => s.door.x !== s.door.tx || s.door.y !== s.door.ty;
 
+function stepKeys(s) {
+  const p = s.p;
+  for (const k of s.keys) {
+    if (k.got) continue;
+    const dx = k.tx - k.x, dy = k.ty - k.y, dist = Math.hypot(dx, dy);
+    if (dist) { const st = (k.speed || 12) * STEP; if (dist <= st) { k.x = k.tx; k.y = k.ty; } else { k.x += dx / dist * st; k.y += dy / dist * st; } }
+    if (s.status === 'play' && overlap(p.x, p.y, PLAYER_W, PLAYER_H, k.x - 0.3, k.y - 0.35, 0.6, 0.7)) {
+      k.got = true; s.got++;
+      s.events.push({ e: 'key', x: k.x, y: k.y, left: s.keys.length - s.got });
+    }
+  }
+}
+
 // ---------- traps ----------
 const center = s => [s.p.x + PLAYER_W / 2, s.p.y + PLAYER_H / 2];
 
@@ -345,6 +362,7 @@ function triggered(L, s, w, i) {
     if (Math.hypot(d.x + 0.4 - cx, d.y + 0.7 - cy) > w.near || doorMoving(s)) return false;
   }
   if (w.t !== undefined && s.t < w.t) return false;
+  if (w.keys !== undefined && s.got < w.keys) return false;
   if (w.before !== undefined && s.t >= w.before) return false;
   if (w.tries !== undefined) {
     const a = s.attempt, tr = w.tries;
@@ -471,6 +489,11 @@ function apply(L, s, i) {
       break;
     case 'reveal': s.revealed += tr.g; break;
     case 'speed': s.speed = tr.factor ?? 1; break;
+    case 'keymove': { // key number k (counting from 0, in map order) runs to a mark
+      const k = s.keys[tr.k];
+      if (k && !k.got) { k.tx = tr.to[0]; k.ty = tr.to[1]; k.speed = tr.speed || 12; }
+      break;
+    }
     case 'lag': s.lag = Math.round((tr.seconds ?? 0) / STEP); if (!s.lag) s.inq.length = 0; break;
     case 'auto': s.auto = tr.dir ?? 0; break;
     case 'swap': s.swap = !s.swap; break;
@@ -505,6 +528,7 @@ export function step(L, s, input) {
   for (const k of s.spikes) if (k.k < 1) { k.k = Math.min(1, k.k + STEP / SPIKE_POP); if (k.k === 1) s.events.push({ e: 'pop-spike', x: k.x + 0.5, y: k.y + 0.5 }); }
   stepBalls(L, s);
   stepDoor(s);
+  stepKeys(s);
   if (s.ghost) {
     const k = s.n - s.ghost.delay, P = s.ghost.path;
     s.gpos = k >= 0 && k * 2 + 1 < P.length ? [P[k * 2], P[k * 2 + 1]] : null;
@@ -513,8 +537,10 @@ export function step(L, s, input) {
   if (s.status === 'play') stepTraps(L, s);
   if (s.status === 'play') { const c = touchesHazard(L, s); if (c) die(s, c); }
   if (s.status === 'play' && !doorMoving(s)) {
-    const d = s.door, p = s.p;
-    if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, d.x + 0.15, d.y + 0.25, 0.5, 1.15)) { s.status = 'won'; s.events.push({ e: 'win', x: d.x + 0.4, y: d.y + 0.7 }); }
+    const d = s.door, p = s.p, at = overlap(p.x, p.y, PLAYER_W, PLAYER_H, d.x + 0.15, d.y + 0.25, 0.5, 1.15);
+    if (at && s.got === s.keys.length) { s.status = 'won'; s.events.push({ e: 'win', x: d.x + 0.4, y: d.y + 0.7 }); }
+    else if (at && !s.atDoor) s.events.push({ e: 'locked', left: s.keys.length - s.got, x: d.x + 0.4, y: d.y + 0.7 });
+    s.atDoor = at;
   }
   return s.status;
 }

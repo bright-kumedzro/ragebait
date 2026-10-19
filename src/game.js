@@ -1,5 +1,5 @@
 // Game flow: menus, starting levels, running the sim at a fixed step, deaths, respawns, wins, challenges and saving.
-import { STEP, RESPAWN_DELAY, CHAPTERS, TAUNTS, CLEAR_LINES, GAME_NAME, CHALLENGE_LEVELS } from './config.js';
+import { STEP, RESPAWN_DELAY, CHAPTERS, TAUNTS, DEATH_MILESTONES, clearLine, GAME_NAME, CHALLENGE_LEVELS } from './config.js';
 import { LEVELS, CHAPTER_LEVELS, getLevel, levelIndex } from './levels/index.js';
 import { createState, step, fireExternal } from './sim.js';
 import { createRenderer } from './render.js';
@@ -20,13 +20,22 @@ let chal = null;            // while playing a challenge: { id, rec }
 let replaying = null;       // inputs to play instead of the player's (the smoke test uses it)
 const routes = {};          // level id -> inputs, played automatically whenever that level starts (smoke test)
 
+// [line, sticker] by how you died; used about half the time, the rest come from TAUNTS
 const CAUSE_TAUNTS = {
-  bite: ['That’s not a door.', 'It bites.', 'Doors don’t have teeth. Usually.'],
-  crush: ['Flat.', 'Pancake.', 'Squish.'],
-  fall: ['Mind the gap.', 'Down you go.', 'Gravity: 1, you: 0.'],
-  ball: ['Bowled over.', 'Strike!'],
-  trap: ['Nice try.', 'Did you really think…'],
-  fake: ['Just kidding.', 'lol no.', 'You really thought.'],
+  bite: [['That’s not a door.', '🚪'], ['It bites.', '🦷'], ['Doors don’t have teeth. Usually.', '🦷'], ['Bro thought it was a door.', '🤦']],
+  crush: [['Flat.', '🥞'], ['Pancake.', '🥞'], ['Squish.', '🫓'], ['Emotional damage.', '💔']],
+  fall: [['Mind the gap.', '🕳️'], ['Down you go.', '⬇️'], ['Gravity: 1, you: 0.', '🍎'], ['The floor said no.', '🙅'], ['Bro thought he could jump that.', '🤦']],
+  spike: [['Caught in 4K.', '📸'], ['Pointy and proud.', '📌'], ['Ouch.', '🩹']],
+  ball: [['Bowled over.', '🎳'], ['Strike!', '🎳']],
+  trap: [['Nice try.', '😏'], ['Did you really think…', '🤔']],
+  fake: [['Just kidding.', '😜'], ['lol no.', '😂'], ['You really thought.', '🤡']],
+  fakekey: [['That key had teeth.', '🦷'], ['Not that one.', '🔑'], ['That key was sus.', '🕵️']],
+  ghost: [['Beaten by your past self.', '👻'], ['Character development? Not today.', '👻']],
+};
+// a sticker for the lines traps say when they go off
+const TRAP_STICKER = {
+  fall: '🕳️', spikes: '😈', door: '🏃', mirror: '🪞', rotate: '🙃', swap: '🎨', lag: '📶', dark: '🔦', reverse: '🔄',
+  speed: '💨', flip: '🙃', keymove: '🏃', vanish: '🫥', reveal: '👀', balls: '💣', move: '😈', kill: '💀', say: '😏',
 };
 let fakesLeft = 0, faking = false, fakeCheckpoint = false; // chapter 4's fake wins and fake checkpoints
 let corpses = [], path = [], lastPath = null, crashTimer = 0; // chapter 5: bodies you left, the ghost's route, the fake crash
@@ -71,7 +80,7 @@ export function boot() {
 
   // for the smoke test and debugging
   window.__rb = {
-    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y, chal: chal?.id || null, corpses: s.corpses.length, ghost: !!s.gpos }; },
+    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y, chal: chal?.id || null, corpses: s.corpses.length, ghost: !!s.gpos, keys: s.got }; },
     play: (i, inputs) => { startLevel(i); replaying = { inputs, at: 0 }; },
     start: i => startLevel(i),
     routes: (map) => Object.assign(routes, map),
@@ -116,6 +125,7 @@ function startLevel(i, c = null) {
   showButton();
   const label = c ? `Challenge ${c.rec.deaths.length + 1}/${CHALLENGE_LEVELS} · ${lv.def.name}` : lv.def.name;
   ui.hud(lv.id, label, runDeaths);
+  ui.hudKeys(0, L.keys.length);
   ui.intro(lv.def.name, c ? `Challenge level ${c.rec.deaths.length + 1} of ${CHALLENGE_LEVELS}. Every death counts.` : lv.def.hint || '');
   if (document.body.classList.contains('touch') && innerHeight > innerWidth && !save.tips.rotate) {
     save.tips.rotate = true; persist();
@@ -129,6 +139,7 @@ function respawn() {
   deadT = 0; acc = 0;
   hideCrash();
   showButton();
+  ui.hudKeys(0, L.keys.length);
 }
 
 // The corner button: a fake "Skip level" (2-6), or "Don't press" (chapter 5), which you have to press.
@@ -197,19 +208,28 @@ function drain() {
       case 'bounce': sound.bounce(); break;
       case 'bonk': sound.bonk(); break;
       case 'win': sound.win(); break;
+      case 'key':
+        sound.check(); ui.hudKeys(s.got, s.keys.length); ui.bumpKeys();
+        if (!ev.left) ui.taunt('Unlocked.', '🔓');
+        break;
+      case 'locked':
+        sound.bump();
+        ui.taunt(`Locked. ${ev.left} ${ev.left === 1 ? 'key' : 'keys'} to go.`, '🔒');
+        break;
       case 'trap':
         if (ev.kind === 'fall') sound.fall();
         else if (ev.kind === 'spikes') { if (!ev.quiet) sound.spike(); }
-        else if (ev.kind === 'checkpoint') { sound.check(); fakeCheckpoint = true; ui.taunt('Checkpoint saved!'); }
+        else if (ev.kind === 'checkpoint') { sound.check(); fakeCheckpoint = true; ui.taunt('Checkpoint saved!', '🚩'); }
         else if (ev.kind === 'speed' || ev.kind === 'mirror' || ev.kind === 'swap' || ev.kind === 'rotate') sound.flip();
         else if (ev.kind === 'lag' || ev.kind === 'auto') sound.lol();
         else if (ev.kind === 'dark') sound.bump();
-        else if (ev.kind === 'crash') { sound.error(); showCrash(L.traps[ev.i].seconds); }
+        else if (ev.kind === 'crash') { sound.error(); showCrash(L.traps[ev.i].seconds); ui.taunt('This is fine.', '🔥'); }
         else if (ev.kind === 'door') sound.door();
         else if (ev.kind === 'flip') sound.flip();
         else if (ev.kind === 'reverse') sound.lol();
         else if (ev.kind !== 'move' && ev.kind !== 'balls') sound.trap();
-        if (ev.say) ui.taunt(ev.say);
+        if (ev.say) ui.taunt(ev.say, TRAP_STICKER[ev.kind] || '');
+        else if (ev.kind === 'dark' && L.traps[ev.i].radius) ui.taunt('Who turned off the lights? (It was me.)', '🔦');
         break;
     }
   }
@@ -227,12 +247,16 @@ function onDeath(cause, ev) {
   ui.bumpDeaths(runDeaths);
   if (save.settings.haptics && navigator.vibrate) navigator.vibrate(40);
   ui.hideIntro();
-  const pool = cause === 'fake' ? CAUSE_TAUNTS.fake : CAUSE_TAUNTS[cause] && Math.random() < 0.45 ? CAUSE_TAUNTS[cause] : TAUNTS;
+  const pool = cause === 'fake' ? CAUSE_TAUNTS.fake : CAUSE_TAUNTS[cause] && Math.random() < 0.5 ? CAUSE_TAUNTS[cause] : TAUNTS;
   let line;
-  do line = pool[Math.floor(Math.random() * pool.length)]; while (line === lastTaunt && pool.length > 1);
-  if (fakeCheckpoint) line = 'What checkpoint?';
-  lastTaunt = line;
-  ui.taunt(line);
+  do line = pool[Math.floor(Math.random() * pool.length)]; while (line[0] === lastTaunt && pool.length > 1);
+  // a few situations get their own line
+  if (s.lag && Math.random() < 0.6) line = ['It’s not your Wi-Fi. It’s you.', '📶'];
+  if (L.corpses && Math.random() < 0.4) line = ['It’s free real estate.', '🏚️'];
+  if (fakeCheckpoint) line = ['What checkpoint?', '🚩'];
+  if (DEATH_MILESTONES[save.deaths]) line = DEATH_MILESTONES[save.deaths];
+  lastTaunt = line[0];
+  ui.taunt(line[0], line[1]);
 }
 
 function finish() {
@@ -250,7 +274,7 @@ function finish() {
 
   const chLevels = CHAPTER_LEVELS[lv.ch].length, lastOfChapter = lv.i === chLevels - 1, lastOfGame = idx === LEVELS.length - 1;
   $('resEyebrow').textContent = `Level ${lv.id} cleared`;
-  $('resTitle').textContent = lastOfGame ? 'You beat it. Somehow.' : lastOfChapter ? `${CHAPTERS[lv.ch].name}: done` : CLEAR_LINES.find(([n]) => runDeaths <= n)[1];
+  $('resTitle').textContent = lastOfGame ? 'You beat it. Somehow. 🏆' : lastOfChapter ? `${CHAPTERS[lv.ch].name}: done 🎉` : clearLine(runDeaths);
   $('resDeaths').textContent = runDeaths;
   $('resTime').textContent = runTime.toFixed(1);
   let note = '';
@@ -271,7 +295,7 @@ function fakeWin() {
   faking = true;
   const lv = LEVELS[idx];
   $('resEyebrow').textContent = chal ? `Challenge · level ${chal.rec.deaths.length + 1} of ${CHALLENGE_LEVELS}` : `Level ${lv.id} cleared`;
-  $('resTitle').textContent = CLEAR_LINES.find(([n]) => runDeaths <= n)[1];
+  $('resTitle').textContent = clearLine(runDeaths);
   $('resDeaths').textContent = runDeaths;
   $('resTime').textContent = runTime.toFixed(1);
   $('resNote').textContent = '';
@@ -301,7 +325,7 @@ function challengeLevelDone() {
   const k = rec.deaths.length, done = Compete.finished(rec);
   const total = rec.deaths.reduce((a, b) => a + b, 0);
   $('resEyebrow').textContent = `Challenge · level ${k} of ${CHALLENGE_LEVELS}`;
-  $('resTitle').textContent = done ? (total === 0 ? 'Flawless. Disgusting.' : 'Survived. Barely.') : CLEAR_LINES.find(([n]) => runDeaths <= n)[1];
+  $('resTitle').textContent = done ? (total === 0 ? 'Flawless. Disgusting. 💅' : 'Survived. Barely. 😮‍💨') : clearLine(runDeaths);
   $('resDeaths').textContent = runDeaths;
   $('resTime').textContent = runTime.toFixed(1);
   const nextId = rec.levels[k];

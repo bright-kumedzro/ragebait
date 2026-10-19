@@ -21,6 +21,7 @@ const ICONS = {
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   music: '<path d="M9 17.5V6l11-2.5v11.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="6.5" cy="17.5" r="2.8"/><circle cx="17.5" cy="15" r="2.8"/>',
   versus: '<path d="M3 5h3.2l2.3 8.6L10.8 5H14l-4 14H7zM20.6 8.2c-.5-.9-1.4-1.4-2.5-1.4-1.3 0-2.2.7-2.2 1.6 0 2.4 5.6 1.4 5.6 6 0 2.3-1.9 3.9-4.4 3.9-1.9 0-3.4-.9-4.1-2.4l2.1-1.2c.4.8 1.1 1.3 2 1.3 1 0 1.7-.6 1.7-1.4 0-2.5-5.6-1.4-5.6-6 0-2.1 1.8-3.7 4.4-3.7 1.7 0 3.1.8 3.9 2.1z"/>',
+  key: '<circle cx="7.5" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 10.8h10v2.6h-2.2V17h-2.6v-3.6h-1.8V16h-2.6v-2.6H12z"/>',
   chevron: '<path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 export const icon = name => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -61,9 +62,10 @@ export function toast(text, ms = 2400) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-export function taunt(text) {
+// A line in big type, with an emoji sticker popping up above it when there is one.
+export function taunt(text, sticker = '') {
   const el = $('taunt');
-  el.textContent = text;
+  el.innerHTML = (sticker ? `<span class="sticker" aria-hidden="true">${esc(sticker)}</span>` : '') + `<span>${esc(text)}</span>`;
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 
@@ -80,6 +82,17 @@ export function hud(id, name, deaths) {
   $('hudId').textContent = id; $('hudName').textContent = name;
   $('hudDeathCount').textContent = deaths;
 }
+// the key counter, shown only on levels with keys
+export function hudKeys(got, total) {
+  const el = $('hudKeys');
+  el.hidden = !total;
+  if (total) { $('hudKeyCount').textContent = `${got}/${total}`; el.classList.toggle('done', got === total); }
+}
+export function bumpKeys() {
+  const el = $('hudKeys');
+  el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+}
+
 export function bumpDeaths(n) {
   $('hudDeathCount').textContent = n;
   const el = $('hudDeaths');
@@ -251,6 +264,8 @@ export function renderChallenge(st, h) {
   else if (inviting && !others.length) head = 'Pick your victim';
   else if (n) head = `Deaths to beat: ${v.players[0].total}`;
   else head = 'Be the first to finish';
+  // lost to someone: a little salt underneath
+  const salt = me > 0 ? ['Mogged. 📉', 'Ratio’d. 📉', 'Emotional damage. 💔'][v.id.charCodeAt(0) % 3] : '';
   const status = others.length ? `${others.length} accepted · ${done} finished` : 'Nobody has accepted yet';
   const chips = v.levels.map((id, i) => `<li><b>${i + 1}</b>${esc(id)} · ${esc(levelName(id))}</li>`).join('');
   const rows = v.players.map((p, i) => `<li class="${p.you ? 'you' : ''}"><span class="rank">${i + 1}</span>`
@@ -273,6 +288,7 @@ export function renderChallenge(st, h) {
     actions = inviting ? share + play : play;
   }
   body.innerHTML = `<p class="eyebrow">${v.mine ? 'Your challenge' : `${esc(v.by)}’s challenge`} · fewest deaths wins</p><h3 class="ch-head">${head}</h3>`
+    + (salt ? `<p class="ch-salt">${salt}</p>` : '')
     + `<ol class="ch-levels">${chips}</ol><p class="ch-status">${status}</p>`
     + (n || v.playing.length ? `<ol class="board">${rows}</ol>` : '') + `<div class="ch-actions">${actions}</div>`;
   paintIcons(body);

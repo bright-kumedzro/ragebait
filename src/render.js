@@ -4,7 +4,7 @@ import { PLAYER_W, PLAYER_H } from './config.js';
 import { SOLID, SPIKE_U, SPIKE_D, SPIKE_R, isSpike } from './sim.js';
 
 const MAX_DPR = 2;
-const VIEW_W = 34, VIEW_H = 20; // at most this many tiles across and down; bigger levels scroll
+const VIEW_W = 34, VIEW_H = 15; // at most this many tiles across and down; bigger levels scroll
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -114,6 +114,31 @@ export function createRenderer(canvas) {
     }
   }
 
+  // a key, bobbing; fake ones look exactly the same
+  function drawKey(x, y, t) {
+    const b = Math.sin(t * 3 + x) * 0.07, lw = Math.max(1.5, scale * 0.07);
+    ctx.save();
+    ctx.translate(X(x), Y(y + b));
+    ctx.rotate(-0.5);
+    ctx.lineWidth = lw; ctx.strokeStyle = theme.ink; ctx.fillStyle = theme.door;
+    const r = scale * 0.17;
+    ctx.beginPath(); ctx.rect(-scale * 0.02, -scale * 0.05, scale * 0.36, scale * 0.1); ctx.fill(); ctx.stroke(); // shaft
+    ctx.beginPath(); ctx.rect(scale * 0.2, scale * 0.04, scale * 0.07, scale * 0.11); ctx.rect(scale * 0.09, scale * 0.04, scale * 0.06, scale * 0.08); ctx.fill(); ctx.stroke(); // teeth
+    ctx.beginPath(); ctx.arc(-r, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); // bow
+    ctx.beginPath(); ctx.arc(-r, 0, r * 0.4, 0, Math.PI * 2); ctx.fillStyle = theme.ink; ctx.fill();
+    ctx.restore();
+  }
+
+  function drawLock(x, y) {
+    const w = 0.32, h = 0.26, lw = Math.max(1.5, scale * 0.06);
+    ctx.strokeStyle = theme.ink; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.arc(X(x), Y(y - h / 2), (w / 2.6) * scale, Math.PI, 0); ctx.stroke(); // shackle
+    ctx.fillStyle = theme.ink;
+    ctx.fillRect(X(x - w / 2), Y(y - h / 2), X(x + w / 2) - X(x - w / 2), Y(y + h / 2) - Y(y - h / 2));
+    ctx.fillStyle = theme.door;
+    ctx.beginPath(); ctx.arc(X(x), Y(y), Math.max(1, scale * 0.04), 0, Math.PI * 2); ctx.fill();
+  }
+
   function drawCorpse(cx, cy) {
     const x0 = X(cx + 0.04), y0 = Y(cy + 0.08), w = X(cx + 0.96) - x0, h = Y(cy + 1) - y0;
     ctx.fillStyle = theme.ink;
@@ -212,6 +237,8 @@ export function createRenderer(canvas) {
       case 'bonk': shake = Math.max(shake, 0.12); burst(ev.x, ev.y, 6, theme.solid, 4, 0.4); break;
       case 'bump': squash = 0.25; break;
       case 'doorstop': burst(ev.x, ev.y, 5, theme.solid, 3, 0.35, 0.1); break;
+      case 'key': burst(ev.x, ev.y, 18, theme.door, 7, 0.7, 0.12); break;
+      case 'locked': shake = Math.max(shake, 0.1); break;
       case 'win': burst(ev.x, ev.y, 30, theme.door, 9, 1, 0.14); burst(ev.x, ev.y, 14, theme.ink, 7, 0.8, 0.1); break;
       case 'trap':
         if (ev.kind === 'fall') shake = Math.max(shake, 0.15);
@@ -291,6 +318,9 @@ export function createRenderer(canvas) {
     for (const f of L.fakeDoors) drawDoor(f.x, f.y, false, t, s.cause === 'bite' ? 1 : 0);
     const d = s.door;
     drawDoor(d.x, d.y, d.x !== d.tx || d.y !== d.ty, t);
+    if (s.got < s.keys.length) drawLock(d.x + 0.4, d.y + 0.62);
+    for (const k of s.keys) if (!k.got) drawKey(k.x, k.y, t);
+    for (const f of L.fakeKeys) drawKey(f.x, f.y, t);
 
     ctx.fillStyle = theme.solid;
     for (const b of s.balls) {
