@@ -3,6 +3,7 @@ import { STEP, RESPAWN_DELAY, CHAPTERS, TAUNTS, DEATH_MILESTONES, clearLine, GAM
 import { LEVELS, CHAPTER_LEVELS, getLevel, levelIndex } from './levels/index.js';
 import { createState, step, fireExternal } from './sim.js';
 import { createRenderer } from './render.js';
+import { createStage } from './figure.js';
 import { initInput, readInput, clearInput, setSwap } from './input.js';
 import { initAudio, applyAudio, suspendAudio, sound, setSong } from './audio.js';
 import { save, persist, resetSave, levelSave, isUnlocked, nextUnplayed } from './save.js';
@@ -12,7 +13,8 @@ import * as ui from './ui.js';
 
 const $ = id => document.getElementById(id);
 
-let renderer, idx = 0, L = null, s = null;
+let renderer, stage, idx = 0, L = null, s = null;
+let spots = []; // where the last few deaths happened, for the same-spot facepalm
 let mode = 'menu';          // 'menu' | 'play' | 'pause' | 'done'
 let acc = 0, last = 0, clock = 0, deadT = 0;
 let runDeaths = 0, runTime = 0, lastTaunt = '';
@@ -49,6 +51,7 @@ const stateOpts = () => ({
 export function boot() {
   const canvas = $('stage');
   renderer = createRenderer(canvas);
+  stage = createStage($('resReact'));
   ui.paintIcons();
   initInput(canvas, { onKey, onTouch: () => document.body.classList.add('touch') });
   if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
@@ -110,7 +113,7 @@ function startLevel(i, c = null) {
   chal = c;
   loadLevel(i);
   runDeaths = c ? c.rec.cur.deaths : 0; runTime = c ? c.rec.cur.time : 0;
-  corpses = []; path = []; lastPath = null; hideCrash();
+  corpses = []; path = []; lastPath = null; spots = []; hideCrash(); stage.stop();
   s = createState(L, stateOpts());
   fakesLeft = L.fakeWin; faking = false; fakeCheckpoint = false;
   deadT = 0; acc = 0;
@@ -254,6 +257,15 @@ function onDeath(cause, ev) {
   if (s.lag && Math.random() < 0.6) line = ['It’s not your Wi-Fi. It’s you.', '📶'];
   if (L.corpses && Math.random() < 0.4) line = ['It’s free real estate.', '🏚️'];
   if (fakeCheckpoint) line = ['What checkpoint?', '🚩'];
+  // five deaths in a row in the same spot: the runner facepalms when it comes back
+  if (ev) {
+    spots = [...spots, [ev.x, ev.y]].slice(-5);
+    const mx = spots.reduce((a, q) => a + q[0], 0) / spots.length, my = spots.reduce((a, q) => a + q[1], 0) / spots.length;
+    if (spots.length === 5 && spots.every(q => Math.hypot(q[0] - mx, q[1] - my) < 1.6)) {
+      line = ['Same spot. Again.', '🤦']; spots = [];
+      renderer.react('facepalm', RESPAWN_DELAY + 1.8);
+    }
+  }
   if (DEATH_MILESTONES[save.deaths]) line = DEATH_MILESTONES[save.deaths];
   lastTaunt = line[0];
   ui.taunt(line[0], line[1]);
@@ -286,7 +298,7 @@ function finish() {
   $('btnNext').hidden = lastOfGame;
   $('btnReplay').hidden = false; $('btnResLevels').hidden = false;
   $('btnShare').hidden = !(lastOfChapter || lastOfGame);
-  setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+  showResult(runDeaths === 0 || lastOfChapter ? 'party' : runDeaths >= 10 ? 'clap' : 'shrug');
 }
 
 // Chapter 4: a result card that looks exactly like the real one. Whatever you press, it was a lie, and it counts
@@ -301,11 +313,22 @@ function fakeWin() {
   $('resNote').textContent = '';
   $('btnNext').textContent = 'Next level'; $('btnNext').hidden = false;
   $('btnReplay').hidden = !!chal; $('btnResLevels').hidden = !!chal; $('btnShare').hidden = true;
-  setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+  showResult('party'); // it's fake, so make it a good one
+}
+
+// The result card, with the runner's reaction on its little stage: dancing, shrugging or a slow clap.
+function showResult(kind) {
+  setTimeout(() => {
+    if (mode !== 'done') return;
+    ui.showModal('mdlResult');
+    const th = CHAPTERS[LEVELS[idx].ch].theme;
+    stage.play(kind, { ...th, air: th.paper || th.air });
+  }, 650);
 }
 
 function unfake() {
   faking = false;
+  stage.stop();
   ui.showModal('mdlResult', false);
   mode = 'play'; last = performance.now();
   document.body.classList.add('playing');
@@ -334,7 +357,7 @@ function challengeLevelDone() {
   $('btnNext').textContent = done ? 'See who won' : 'Next level';
   $('btnNext').hidden = false;
   $('btnReplay').hidden = true; $('btnResLevels').hidden = true; $('btnShare').hidden = true;
-  setTimeout(() => { if (mode === 'done') ui.showModal('mdlResult'); }, 650);
+  showResult(done && total === 0 || runDeaths === 0 ? 'party' : runDeaths >= 10 ? 'clap' : 'shrug');
 }
 
 // ---------- menus ----------
@@ -346,7 +369,7 @@ function toMenu() {
   for (const id of ['mdlPause', 'mdlResult']) ui.showModal(id, false);
   ui.hideIntro();
   chToken++; liveNudge = null; // stops any live challenge refresh
-  hideCrash();
+  hideCrash(); stage.stop();
 }
 
 function goTitle() {

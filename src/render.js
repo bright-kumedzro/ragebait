@@ -2,6 +2,7 @@
 // particles and screen shake that sell every death. Nothing here changes the sim.
 import { PLAYER_W, PLAYER_H } from './config.js';
 import { SOLID, SPIKE_U, SPIKE_D, SPIKE_R, isSpike } from './sim.js';
+import { pose, drawFigure } from './figure.js';
 
 const MAX_DPR = 2;
 const VIEW_W = 34, VIEW_H = 15; // at most this many tiles across and down; bigger levels scroll
@@ -17,6 +18,8 @@ export function createRenderer(canvas) {
   let squash = 0, lastFace = 1;
   let mirrorK = 1, flagWave = 0;        // mirrorK eases between 1 and -1 so a mirror trap flips the view visibly
   let rotK = 0;                         // 0 upright → 1 upside down, eased the same way
+  let now = 0, doorLaugh = 0, mood = null; // the door cackles until doorLaugh; mood: { kind, until } for the runner
+  let haT = 0;
   let insets = { top: 0, bottom: 0 };   // CSS px the HUD and touch controls cover
 
   function resize() {
@@ -85,7 +88,27 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawDoor(x, y, moving, t, open = 0) {
+  // A door's face: 'laugh' (eyes shut, mouth open) while it runs off or you hit it locked, 'grin' on a fake door
+  // you're about to touch.
+  function drawFace(x, y, kind, t) {
+    const lw = Math.max(1.5, scale * 0.06);
+    ctx.strokeStyle = theme.ink; ctx.fillStyle = theme.ink; ctx.lineWidth = lw; ctx.lineCap = 'round';
+    for (const ex of [0.27, 0.53]) {
+      ctx.beginPath();
+      if (kind === 'laugh') ctx.arc(X(x + ex), Y(y + 0.42), scale * 0.07, Math.PI * 1.15, Math.PI * 1.85);
+      else { ctx.moveTo(X(x + ex - 0.07), Y(y + 0.36)); ctx.lineTo(X(x + ex + 0.07), Y(y + 0.42)); } // sly brows
+      ctx.stroke();
+      if (kind !== 'laugh') { ctx.beginPath(); ctx.arc(X(x + ex), Y(y + 0.47), Math.max(1, scale * 0.035), 0, Math.PI * 2); ctx.fill(); }
+    }
+    if (kind === 'laugh') {
+      const o = 0.12 + Math.abs(Math.sin(t * 18)) * 0.1;
+      ctx.beginPath(); ctx.ellipse(X(x + 0.4), Y(y + 0.74), scale * 0.17, scale * o, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(X(x + 0.4), Y(y + 0.62), scale * 0.17, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    }
+  }
+
+  function drawDoor(x, y, moving, t, open = 0, face = '') {
     const w = 0.8, h = 1.4;
     let bob = 0;
     if (moving) bob = Math.abs(Math.sin(t * 22)) * 0.12;
@@ -104,6 +127,7 @@ export function createRenderer(canvas) {
     }
     ctx.fillStyle = theme.solid;
     ctx.beginPath(); ctx.arc(X(x + w - 0.2), Y(y + 0.8 - bob), Math.max(1.5, scale * 0.06), 0, Math.PI * 2); ctx.fill();
+    if (face && !open) drawFace(x, y - bob, face, t);
     if (moving) { // little legs
       ctx.strokeStyle = theme.ink; ctx.lineWidth = Math.max(1, scale * 0.07); ctx.lineCap = 'round';
       const ph = Math.sin(t * 22) * 0.12;
@@ -176,6 +200,15 @@ export function createRenderer(canvas) {
 
   function drawPlayer(s, t) {
     const p = s.p, g = s.grav;
+    // standing still while a reaction is on: the posed figure instead of the running one
+    if (mood && t < mood.until && p.ground && Math.abs(p.vx) < 0.4) {
+      ctx.save();
+      ctx.translate(X(p.x + PLAYER_W / 2), Y(g > 0 ? p.y + PLAYER_H : p.y));
+      ctx.scale(scale * lastFace, scale * g);
+      drawFigure(ctx, pose(mood.kind, t), theme.ink, theme.air);
+      ctx.restore();
+      return;
+    }
     const face = p.vx > 0.3 ? 1 : p.vx < -0.3 ? -1 : lastFace;
     lastFace = face;
     const fx = p.x + PLAYER_W / 2, fy = g > 0 ? p.y + PLAYER_H : p.y;
@@ -238,10 +271,11 @@ export function createRenderer(canvas) {
       case 'bump': squash = 0.25; break;
       case 'doorstop': burst(ev.x, ev.y, 5, theme.solid, 3, 0.35, 0.1); break;
       case 'key': burst(ev.x, ev.y, 18, theme.door, 7, 0.7, 0.12); break;
-      case 'locked': shake = Math.max(shake, 0.1); break;
+      case 'locked': shake = Math.max(shake, 0.1); doorLaugh = now + 1.2; break;
       case 'win': burst(ev.x, ev.y, 30, theme.door, 9, 1, 0.14); burst(ev.x, ev.y, 14, theme.ink, 7, 0.8, 0.1); break;
       case 'trap':
         if (ev.kind === 'fall') shake = Math.max(shake, 0.15);
+        if (ev.kind === 'door') doorLaugh = now + 2.2;
         if (ev.kind === 'checkpoint') { flagWave = 1; for (const f of L.flags) burst(f.x + 0.5, f.y - 0.4, 14, theme.door, 6, 0.8, 0.12); }
         break;
     }
@@ -254,6 +288,7 @@ export function createRenderer(canvas) {
   }
 
   function drawWorld(s, dt, t, opts) {
+    now = t;
     const target = targetCam(s);
     const follow = 1 - Math.exp(-dt * 10);
     camX += (target.x - camX) * follow; camY += (target.y - camY) * follow;
@@ -315,9 +350,15 @@ export function createRenderer(canvas) {
 
     flagWave = Math.max(0, flagWave - dt * 0.8);
     for (const f of L.flags) drawFlag(f.x, f.y, t);
-    for (const f of L.fakeDoors) drawDoor(f.x, f.y, false, t, s.cause === 'bite' ? 1 : 0);
-    const d = s.door;
-    drawDoor(d.x, d.y, d.x !== d.tx || d.y !== d.ty, t);
+    // a fake door grins once you're close enough that it's too late
+    const pcx = s.p.x + PLAYER_W / 2, pcy = s.p.y + PLAYER_H / 2;
+    for (const f of L.fakeDoors) drawDoor(f.x, f.y, false, t, s.cause === 'bite' ? 1 : 0, Math.hypot(f.x + 0.4 - pcx, f.y + 0.7 - pcy) < 1.3 ? 'grin' : '');
+    const d = s.door, running = d.x !== d.tx || d.y !== d.ty;
+    drawDoor(d.x, d.y, running, t, 0, running || t < doorLaugh ? 'laugh' : '');
+    if ((running || t < doorLaugh) && t > haT) { // "HA" floating up from a laughing door
+      haT = t + 0.32;
+      parts.push({ x: d.x + 0.4 + (Math.random() - 0.5) * 0.6, y: d.y - 0.1, vx: (Math.random() - 0.5) * 1.5, vy: -3.5, life: 0.9, max: 0.9, color: theme.ink, size: 0.34, text: 'HA' });
+    }
     if (s.got < s.keys.length) drawLock(d.x + 0.4, d.y + 0.62);
     for (const k of s.keys) if (!k.got) drawKey(k.x, k.y, t);
     for (const f of L.fakeKeys) drawKey(f.x, f.y, t);
@@ -346,7 +387,8 @@ export function createRenderer(canvas) {
       ctx.globalAlpha = Math.min(1, q.life / q.max * 1.5);
       ctx.fillStyle = q.color;
       const sz = q.size * scale;
-      ctx.fillRect(X(q.x) - sz / 2, Y(q.y) - sz / 2, sz, sz);
+      if (q.text) { q.vy += -28 * dt; ctx.font = `bold ${Math.round(sz)}px Bungee, Impact, sans-serif`; ctx.textAlign = 'center'; ctx.fillText(q.text, X(q.x), Y(q.y)); }
+      else ctx.fillRect(X(q.x) - sz / 2, Y(q.y) - sz / 2, sz, sz);
     }
     ctx.globalAlpha = 1;
     if (s.dark) { // lights out: only a circle around the runner
@@ -368,6 +410,7 @@ export function createRenderer(canvas) {
   return {
     resize, setLevel, draw, onEvent, toScreen,
     setInsets(v) { insets = v; if (L) fit(false); },
+    react(kind, seconds) { mood = { kind, until: now + seconds }; },
     clearMarks() { deathMarks = []; },
     get marks() { return deathMarks; },
     set marks(v) { deathMarks = v; },
