@@ -16,6 +16,7 @@ export function createRenderer(canvas) {
   let deathMarks = [];
   let squash = 0, lastFace = 1;
   let mirrorK = 1, flagWave = 0;        // mirrorK eases between 1 and -1 so a mirror trap flips the view visibly
+  let rotK = 0;                         // 0 upright → 1 upside down, eased the same way
   let insets = { top: 0, bottom: 0 };   // CSS px the HUD and touch controls cover
 
   function resize() {
@@ -52,7 +53,7 @@ export function createRenderer(canvas) {
   }
 
   function setLevel(level, th) {
-    L = level; theme = th; parts.length = 0; deathMarks = []; shake = 0; flash = 0; mirrorK = 1;
+    L = level; theme = th; parts.length = 0; deathMarks = []; shake = 0; flash = 0; mirrorK = 1; rotK = 0;
     fit(true);
   }
 
@@ -111,6 +112,26 @@ export function createRenderer(canvas) {
       ctx.moveTo(X(x + 0.55), Y(y + h - bob)); ctx.lineTo(X(x + 0.55 - ph), Y(y + h + 0.1));
       ctx.stroke();
     }
+  }
+
+  function drawCorpse(cx, cy) {
+    const x0 = X(cx + 0.04), y0 = Y(cy + 0.08), w = X(cx + 0.96) - x0, h = Y(cy + 1) - y0;
+    ctx.fillStyle = theme.ink;
+    ctx.beginPath(); ctx.roundRect(x0, y0, w, h, scale * 0.18); ctx.fill();
+    ctx.strokeStyle = theme.air; ctx.lineWidth = Math.max(1, scale * 0.06); ctx.lineCap = 'round';
+    for (const ex of [0.32, 0.62]) { // x eyes
+      const ex0 = X(cx + ex), ey0 = Y(cy + 0.3), d = scale * 0.08;
+      ctx.beginPath(); ctx.moveTo(ex0 - d, ey0 - d); ctx.lineTo(ex0 + d, ey0 + d); ctx.moveTo(ex0 + d, ey0 - d); ctx.lineTo(ex0 - d, ey0 + d); ctx.stroke();
+    }
+  }
+
+  // the previous attempt, see-through, in the door colour
+  function drawGhost(s, t) {
+    const face = lastFace, base = theme;
+    theme = { ...base, ink: base.door };
+    ctx.globalAlpha = 0.5;
+    drawPlayer({ p: { x: s.gpos[0], y: s.gpos[1], vx: 6, ground: true, run: t * 7 }, grav: s.grav }, t);
+    ctx.globalAlpha = 1; theme = base; lastFace = face;
   }
 
   // a checkpoint flag on a pole, waving harder for a moment when you pass it
@@ -200,6 +221,12 @@ export function createRenderer(canvas) {
   }
 
   function draw(s, dt, t, opts = {}) {
+    const base = theme;
+    if (s.swap) theme = { ...base, air: base.solid, solid: base.air }; // "which one is the floor?"
+    try { drawWorld(s, dt, t, opts); } finally { theme = base; }
+  }
+
+  function drawWorld(s, dt, t, opts) {
     const target = targetCam(s);
     const follow = 1 - Math.exp(-dt * 10);
     camX += (target.x - camX) * follow; camY += (target.y - camY) * follow;
@@ -211,10 +238,16 @@ export function createRenderer(canvas) {
 
     ctx.fillStyle = theme.air;
     ctx.fillRect(0, 0, cw, ch);
-    const mt = s.mirror ? -1 : 1;
+    const mt = s.mirror ? -1 : 1, rt = s.rot ? 1 : 0;
     mirrorK += Math.sign(mt - mirrorK) * Math.min(Math.abs(mt - mirrorK), dt * 8);
+    rotK += Math.sign(rt - rotK) * Math.min(Math.abs(rt - rotK), dt * 2.5);
     ctx.save();
-    if (mirrorK !== 1) { ctx.translate(cw / 2, 0); ctx.scale(Math.abs(mirrorK) < 0.04 ? 0.04 * Math.sign(mirrorK || 1) : mirrorK, 1); ctx.translate(-cw / 2, 0); }
+    if (mirrorK !== 1 || rotK) {
+      ctx.translate(cw / 2, ch / 2);
+      if (rotK) ctx.rotate(Math.PI * (rotK * rotK * (3 - 2 * rotK)));
+      if (mirrorK !== 1) ctx.scale(Math.abs(mirrorK) < 0.04 ? 0.04 * Math.sign(mirrorK || 1) : mirrorK, 1);
+      ctx.translate(-cw / 2, -ch / 2);
+    }
 
     // static tiles, merged into runs per row
     const x0 = Math.floor(camX) - 1, x1 = Math.ceil(camX + cw / scale) + 1;
@@ -269,6 +302,9 @@ export function createRenderer(canvas) {
       ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), b.r * scale * 0.55, a, a + 1.2); ctx.stroke();
     }
 
+    // your corpses: the solid blocks where you died, drawn as you, flat out
+    for (const [cx, cy] of s.corpses) drawCorpse(cx, cy);
+    if (s.gpos) drawGhost(s, t);
     if (s.status !== 'dead' && !opts.hidePlayer) drawPlayer(s, t);
 
     // particles
@@ -283,6 +319,13 @@ export function createRenderer(canvas) {
       ctx.fillRect(X(q.x) - sz / 2, Y(q.y) - sz / 2, sz, sz);
     }
     ctx.globalAlpha = 1;
+    if (s.dark) { // lights out: only a circle around the runner
+      const cx = X(s.p.x + PLAYER_W / 2), cy = Y(s.p.y + PLAYER_H / 2), r = s.dark * scale;
+      const g = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+      g.addColorStop(0, 'rgba(4,4,10,0)'); g.addColorStop(1, 'rgba(4,4,10,0.97)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-cw, -ch, cw * 3, ch * 3);
+    }
     ctx.restore();
 
     if (flash > 0) { ctx.fillStyle = theme.solid; ctx.globalAlpha = flash * 0.18; ctx.fillRect(0, 0, cw, ch); ctx.globalAlpha = 1; }

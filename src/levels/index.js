@@ -6,8 +6,9 @@ import ch1 from './ch1.js';
 import ch2 from './ch2.js';
 import ch3 from './ch3.js';
 import ch4 from './ch4.js';
+import ch5 from './ch5.js';
 
-export const CHAPTER_LEVELS = [ch1, ch2, ch3, ch4];
+export const CHAPTER_LEVELS = [ch1, ch2, ch3, ch4, ch5];
 export const LEVELS = CHAPTER_LEVELS.flatMap((list, c) => list.map((def, i) => ({ id: `${c + 1}-${i + 1}`, ch: c, i, def })));
 export const levelIndex = id => LEVELS.findIndex(l => l.id === id);
 
@@ -93,5 +94,5 @@ export function compile(def, id = '?') {
   // groups drawn as empty air until something reveals them (they're solid all along)
   const invisible = traps.filter(t => t.do === 'reveal').map(t => t.g).join('');
 
-  return { id, name: def.name, invisible, flags, fakeWin: def.fakeWin || 0, noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
+  return { id, name: def.name, invisible, flags, fakeWin: def.fakeWin || 0, corpses: !!def.corpses, ghost: def.ghost || 0, button: def.button || '', noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
 }

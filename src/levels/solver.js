@@ -1,6 +1,6 @@
 // Finds a way through a level by searching over held inputs, using the real sim. Used by
 // scripts/check-levels.mjs to prove every level can be beaten, and by the smoke test to play one in the browser.
-import { createState, step, cloneState } from '../sim.js';
+import { createState, step, cloneState, fireExternal } from '../sim.js';
 import { STEP, RUN, PLAYER_W, PLAYER_H } from '../config.js';
 
 // Each search move holds one of these for `chunk` steps. j held across two moves is one long jump, not two.
@@ -33,10 +33,10 @@ class Heap {
 
 function key(L, s) {
   const p = s.p, q = v => Math.round(v * 4);
-  const dynamic = s.pending.length || s.balls.length || s.spawners.some(x => !x.done) || s.door.x !== s.door.tx || s.door.y !== s.door.ty
+  const dynamic = s.pending.length || s.balls.length || s.spawners.some(x => !x.done) || s.door.x !== s.door.tx || s.door.y !== s.door.ty || s.gpos || s.lag
     || s.movers.some(m => !m.gone && !(m.kind === 'move' && m.done)) || L.timed;
   return [q(p.x), q(p.y), Math.round(p.vx / 3), Math.round(p.vy / 4), p.ground ? 1 : 0, p.jHeld ? 1 : 0, s.grav, s.rev ? 1 : 0,
-    s.fired.join(''), s.revealed, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
+    s.fired.join(''), s.revealed, s.lag ? s.inq.join('') : '', s.auto, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
 }
 
 // Runs `steps` of one action. Returns the state's status.
@@ -49,7 +49,9 @@ function advance(L, s, a, steps) {
   return 'play';
 }
 
-export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1 } = {}) {
+// ui: names of the level's UI-fired traps to fire at the start (a button the player is meant to press).
+// ghost and corpses: as for createState.
+export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1, ui = [], ghost = null, corpses = [] } = {}) {
   L.timed ??= L.traps.some(t => t.when.t !== undefined || t.loop || t.every);
   const perChunk = RUN * chunk * STEP;
   const h = s => {
@@ -59,7 +61,9 @@ export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1
     const fired = s.fired.reduce((n, f) => n + (f === 2), 0);
     return (Math.abs(dx) + Math.abs(dy) * 0.6) / perChunk - fired * 25;
   };
-  const start = createState(L, { attempt });
+  const start = createState(L, { attempt, ghost, corpses });
+  for (const name of ui) fireExternal(L, start, name);
+  start.events.length = 0;
   const open = new Heap(), seen = new Set([key(L, start)]);
   open.push({ s: start, g: 0, f: h(start), parent: null, a: -1 });
   let nodes = 0;
@@ -88,13 +92,21 @@ export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1
 }
 
 // Plays a found route from a fresh start; true if it still wins (it should: the sim is deterministic).
-export function replay(L, actions, chunk, attempt = 1) {
-  const s = createState(L, { attempt });
+export function replay(L, actions, chunk, attempt = 1, { ui = [], ghost = null, corpses = [] } = {}) {
+  const s = createState(L, { attempt, ghost, corpses });
+  for (const name of ui) fireExternal(L, s, name);
   for (const ai of actions) {
     const st = advance(L, s, ACTIONS[ai], chunk);
     if (st !== 'play') return st === 'won';
   }
   return false;
+}
+
+// Where the runner is at every step of a route: a ghost path for the next attempt.
+export function pathOf(L, actions, chunk, attempt = 1) {
+  const s = createState(L, { attempt }), path = [];
+  for (const ai of actions) for (let k = 0; k < chunk && s.status === 'play'; k++) { step(L, s, ACTIONS[ai]); s.events.length = 0; path.push(s.p.x, s.p.y); }
+  return path;
 }
 
 // The route as one input per sim step, for driving the game in a browser.

@@ -69,6 +69,7 @@ export const sound = {
   flip: () => tone(300, 0.3, { type: 'sine', slide: 900, vol: 0.12 }),
   lol: () => [0, 0.09, 0.18].forEach((d, i) => tone(440 - i * 40, 0.08, { type: 'square', vol: 0.06, delay: d })),
   check: () => [784, 1047, 1319].forEach((f, i) => tone(f, 0.14, { type: 'triangle', vol: 0.09, delay: i * 0.07 })),
+  error: () => { tone(110, 0.35, { type: 'sawtooth', vol: 0.12 }); tone(116, 0.35, { type: 'square', vol: 0.06 }); },
 };
 
 // ---------- music: a small chiptune loop per chapter ----------
@@ -86,6 +87,9 @@ const SONGS = [
   { root: 53, bpm: 146, wave: 'square',
     bass: [0, 0, null, 0, 6, null, 0, null, 0, 0, null, 0, 5, null, 6, null],
     lead: [12, 18, null, 17, null, 12, 15, null, 12, 18, null, 19, 18, null, 15, null] },
+  { root: 48, bpm: 112, wave: 'square',
+    bass: [0, null, 7, null, 0, null, 6, null, 0, null, 7, null, 10, null, 6, null],
+    lead: [null, 24, null, 22, 19, null, 18, null, null, 24, null, 25, 24, null, 19, null] },
 ];
 let song = 0, timer = null, nextAt = 0, stepI = 0;
 const hz = n => 440 * 2 ** ((n - 69) / 12);

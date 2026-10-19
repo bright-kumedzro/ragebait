@@ -196,6 +196,69 @@ if (!only) for (const [name, vp] of VIEWS) {
   await page.close();
 }
 
+// chapter 5: the button you must press, the fake crash, corpses, the ghost, and the view tricks
+{
+  const page = await open('ch5', { width: 1280, height: 720 });
+  const at = id => LEVELS.findIndex(l => l.id === id);
+  const L5 = id => compile(LEVELS[at(id)].def, id);
+  const routeOn = (id, opts = {}) => { const r = solve(L5(id), opts); return toSteps(r.actions, r.chunk); };
+  const cardUp = () => page.waitForFunction(() => window.__rb.state.mode === 'done' && !document.getElementById('mdlResult').hidden, { timeout: 15000 });
+  // inputs that run right, jump once at step k, and die; the first k whose death is the one we want
+  const dying = (id, want) => {
+    const L = L5(id);
+    for (let k = 0; k < 240; k++) {
+      const st = createState(L), steps = [];
+      while (st.status === 'play' && steps.length < 1500) { const inp = { l: 0, r: 1, j: steps.length >= k && steps.length < k + 24 ? 1 : 0 }; steps.push(inp); step(L, st, inp); }
+      if (st.status === 'dead' && want(st)) return steps;
+    }
+    return null;
+  };
+
+  // "Don't press": press it, then a route that needs the wall gone wins
+  await page.evaluate(i => window.__rb.start(i), at('5-6')); await wait(300);
+  const label = await page.$eval('#btnFakeSkip', el => (el.hidden ? '' : el.textContent));
+  if (!/press/i.test(label)) errors.push(`[ch5] 5-6 should show the "Don't press" button (got "${label}")`);
+  await page.click('#btnFakeSkip');
+  await page.evaluate(steps => window.__rb.feed(steps), routeOn('5-6', { ui: ['button'] }));
+  await cardUp().catch(() => errors.push('[ch5] after pressing the button, 5-6 should be beatable'));
+
+  // fake crash: it appears mid-level and its Reload kills
+  await page.evaluate((i, steps) => window.__rb.play(i, steps), at('5-7'), routeOn('5-7'));
+  await page.waitForFunction(() => !document.getElementById('fakeCrash').hidden, { timeout: 8000 }).catch(() => errors.push('[ch5] no fake crash on 5-7'));
+  await page.screenshot({ path: 'artifact/shots/ch5-crash.png' });
+  await page.click('#fakeReload'); await wait(100);
+  if ((await page.evaluate(() => window.__rb.state.status)) !== 'dead') errors.push('[ch5] Reload on the fake crash should kill');
+
+  // corpses: die on the first floating spike, and a body stays there
+  const spikeDeath = dying('5-5', st => st.cause === 'spike');
+  if (!spikeDeath) errors.push('[ch5] could not script a death on 5-5');
+  else {
+    await page.evaluate((i, steps) => window.__rb.play(i, steps), at('5-5'), spikeDeath);
+    await page.waitForFunction(() => window.__rb.state.corpses === 1, { timeout: 8000 }).catch(() => errors.push('[ch5] dying on 5-5 should leave a body'));
+    await wait(300);
+    await page.screenshot({ path: 'artifact/shots/ch5-corpse.png' });
+  }
+
+  // ghost: die once on 5-4, and the next attempt is chased
+  const ghostDeath = dying('5-4', st => st.cause === 'spike');
+  if (!ghostDeath) errors.push('[ch5] could not script a death on 5-4');
+  else {
+    await page.evaluate((i, steps) => window.__rb.play(i, steps), at('5-4'), [...ghostDeath, ...Array(400).fill({ l: 0, r: 0, j: 0 })]);
+    await page.waitForFunction(() => window.__rb.state.ghost, { timeout: 8000 }).catch(() => errors.push('[ch5] no ghost on the second try of 5-4'));
+    await wait(500);
+    await page.screenshot({ path: 'artifact/shots/ch5-ghost.png' });
+  }
+
+  // the view tricks, mid-level
+  for (const [id, x, name] of [['5-2', 8, 'dark'], ['5-3', 8, 'swap'], ['5-8', 9, 'rotate']]) {
+    await page.evaluate((i, steps) => window.__rb.play(i, steps), at(id), routeOn(id));
+    await page.waitForFunction(x => window.__rb.state.x > x, { timeout: 8000 }, x).catch(() => errors.push(`[ch5] ${id} did not get going`));
+    await wait(700);
+    await page.screenshot({ path: `artifact/shots/ch5-${name}.png` });
+  }
+  await page.close();
+}
+
 // every level, as it first appears
 {
   const page = await open('levels', { width: 1280, height: 720 });

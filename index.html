@@ -9,7 +9,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Ragebait">
   <meta property="og:title" content="Ragebait">
-  <meta property="og:description" content="A platformer where every level lies to you. 40 levels, one door each, and none of them play fair.">
+  <meta property="og:description" content="A platformer where every level lies to you. 50 levels, one door each, and none of them play fair.">
   <meta property="og:url" content="https://playragebait.vercel.app/">
   <meta property="og:image" content="https://playragebait.vercel.app/og.png">
   <meta property="og:image:width" content="1200">
@@ -114,6 +114,15 @@
       <button class="btn ghost" id="btnPauseHome">Main menu</button>
     </div>
     <div class="quick" id="pauseQuick"></div>
+  </div>
+</div>
+
+<!-- a fake crash screen (chapter 5); it lets touches through to the game, except on its own card -->
+<div class="modal fake-crash" id="fakeCrash" hidden>
+  <div class="card" role="alertdialog" aria-labelledby="fakeCrashTitle">
+    <h3 id="fakeCrashTitle">Well, that’s embarrassing</h3>
+    <p class="card-sub">The game hit a problem while starting. For once, it isn’t a trap. Reloading usually fixes it.</p>
+    <button class="btn" id="fakeReload">Reload</button>
   </div>
 </div>
 

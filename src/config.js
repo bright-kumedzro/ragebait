@@ -30,7 +30,8 @@ export const RESPAWN_DELAY = 0.55;
 export const CHALLENGE_LEVELS = 3;
 
 // Each chapter has its own palette. air: open space, solid: walls, floors and every hazard, ink: the runner,
-// door: the exit. ui: HUD buttons and text drawn on the air colour. Menus use paper and text (default air and ink).
+// door: the exit. ui: HUD buttons and text drawn on the air colour. Menus use paper and text (default air and ink),
+// with accent for headings and buttons (default solid).
 export const CHAPTERS = [
   {
     id: 'trust', name: 'Trust Issues', blurb: 'Floors, doors and spikes that don’t play fair',
@@ -47,6 +48,10 @@ export const CHAPTERS = [
   {
     id: 'damage', name: 'Emotional Damage', blurb: 'It knows what you learned, and it uses it against you',
     theme: { air: '#F4E4F1', solid: '#7A2E8E', ink: '#16081C', door: '#F5C542', ui: '#4B1A59' },
+  },
+  {
+    id: 'fourth', name: 'Fourth Wall', blurb: 'The game itself is in on it',
+    theme: { air: '#14182B', solid: '#E8E3D3', ink: '#FF4F6D', door: '#46D9FF', ui: '#C9D2F0', paper: '#ECE8DC', text: '#14182B', accent: '#D93A5A' },
   },
 ];
 

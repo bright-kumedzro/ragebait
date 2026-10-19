@@ -12,14 +12,37 @@ export const AIR = 0, SOLID = 1, SPIKE_U = 2, SPIKE_D = 3, SPIKE_L = 4, SPIKE_R 
 export const isSpike = t => t >= SPIKE_U && t <= SPIKE_R;
 const EPS = 1e-6;
 
-// attempt: which try this is (1 = first), for traps that change once you've learned them
-export function createState(L, { attempt = 1 } = {}) {
+// attempt: which try this is (1 = first), for traps that change once you've learned them.
+// ghost: the previous attempt's path { path: [x0, y0, x1, y1, …] one point per step, delay: steps }, which chases
+// you and kills on touch (levels with `ghost`). corpses: cells where you died before, which become solid blocks
+// (levels with `corpses`).
+export function createState(L, { attempt = 1, ghost = null, corpses = [] } = {}) {
+  const grid = L.grid.slice(), bodies = [];
+  if (L.corpses) {
+    for (const [cx, cy0] of corpses) {
+      // where you died, or just above it when that's taken (dying on a spike leaves you lying on top of it)
+      const cy = [cy0, cy0 - 1].find(y => cx >= 0 && cx < L.w && y >= 0 && y < L.h && grid[y * L.w + cx] === AIR);
+      if (cy === undefined || overlap(L.start.x, L.start.y, PLAYER_W, PLAYER_H, cx, cy, 1, 1)) continue; // never on the start
+      grid[cy * L.w + cx] = SOLID;
+      bodies.push([cx, cy]);
+    }
+  }
   return {
     t: 0,
+    n: 0,               // steps taken
     attempt,
+    lag: 0,             // inputs arrive this many steps late (the 'lag' trap); inq holds the ones on their way
+    inq: [],
+    auto: 0,            // forced running direction (the 'auto' trap): 1 right, -1 left, 0 off
+    swap: false,        // air and solid colours swapped (drawing only)
+    dark: 0,            // only this many tiles around the runner are lit (drawing only); 0 = lights on
+    rot: false,         // the view is turned upside down (drawing only)
+    ghost: L.ghost ? ghost : null,
+    gpos: null,         // where the ghost is now
+    corpses: bodies,
     speed: 1,           // run-speed multiplier (the 'speed' trap)
     mirror: false,      // the view is flipped left to right (drawing only; the controls don't change)
-    grid: L.grid.slice(),
+    grid,
     p: { x: L.start.x, y: L.start.y, vx: 0, vy: 0, ground: true, coyote: 0, buffer: 0, jHeld: false, face: 1, run: 0, air: 0 },
     grav: 1,            // 1 = down, -1 = up
     rev: false,         // left and right swapped
@@ -41,7 +64,7 @@ export function createState(L, { attempt = 1 } = {}) {
 
 // A fast copy for the solver (structuredClone works too, but is several times slower). Events aren't copied.
 export function cloneState(s) {
-  const c = { ...s, grid: s.grid.slice(), p: { ...s.p }, door: { ...s.door }, fired: s.fired.slice(), held: s.held.slice(), events: [] };
+  const c = { ...s, grid: s.grid.slice(), p: { ...s.p }, door: { ...s.door }, fired: s.fired.slice(), held: s.held.slice(), inq: s.inq.slice(), events: [] };
   c.movers = s.movers.map(m => ({ ...m, legs: m.legs && m.legs.map(l => l.slice()) }));
   c.spikes = s.spikes.map(k => ({ ...k }));
   c.balls = s.balls.map(b => ({ ...b }));
@@ -108,6 +131,7 @@ function stepPlayer(L, s, input) {
   const p = s.p, dt = STEP;
   let dir = (input.r ? 1 : 0) - (input.l ? 1 : 0);
   if (s.rev) dir = -dir;
+  if (s.auto) dir = s.auto;
   const target = dir * RUN * s.speed;
   const a = (!p.ground ? AIR_ACCEL : dir ? ACCEL : DECEL) * Math.max(1, s.speed);
   p.vx = p.vx < target ? Math.min(target, p.vx + a * dt) : Math.max(target, p.vx - a * dt);
@@ -227,6 +251,7 @@ function touchesHazard(L, s) {
     if ((b.x - nx) ** 2 + (b.y - ny) ** 2 < (b.r - 0.08) ** 2) return 'ball';
   }
   for (const f of L.fakeDoors) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, f.x + 0.15, f.y + 0.2, 0.7, 1.2)) return 'bite';
+  if (s.gpos && overlap(p.x, p.y, PLAYER_W, PLAYER_H, s.gpos[0] + 0.1, s.gpos[1] + 0.12, PLAYER_W - 0.2, PLAYER_H - 0.2)) return 'ghost';
   const out = s.grav > 0 ? p.y > L.h + 1 : p.y + PLAYER_H < -1;
   return out ? 'fall' : '';
 }
@@ -446,6 +471,12 @@ function apply(L, s, i) {
       break;
     case 'reveal': s.revealed += tr.g; break;
     case 'speed': s.speed = tr.factor ?? 1; break;
+    case 'lag': s.lag = Math.round((tr.seconds ?? 0) / STEP); if (!s.lag) s.inq.length = 0; break;
+    case 'auto': s.auto = tr.dir ?? 0; break;
+    case 'swap': s.swap = !s.swap; break;
+    case 'dark': s.dark = tr.radius ?? 0; break;
+    case 'rotate': s.rot = !s.rot; break;
+    case 'crash': break; // the game shows a fake crash screen
     case 'mirror': s.mirror = !s.mirror; break;
     case 'checkpoint': break; // a fake one: the game says "Checkpoint saved!" and then doesn't
     case 'flip': s.grav = -s.grav; s.p.ground = false; break;
@@ -462,6 +493,11 @@ export function step(L, s, input) {
   if (s.status !== 'play') return s.status;
   s.t += STEP;
   s.jumped = false;
+  if (s.lag) { // inputs join a queue and come out `lag` steps later
+    s.inq.push((input.l ? 1 : 0) | (input.r ? 2 : 0) | (input.j ? 4 : 0));
+    const q = s.inq.length > s.lag ? s.inq.shift() : 0;
+    input = { l: q & 1, r: q & 2, j: q & 4 };
+  }
   const wasGround = s.p.ground;
   stepMovers(L, s);
   if (s.status === 'play') stepPlayer(L, s, input);
@@ -469,6 +505,11 @@ export function step(L, s, input) {
   for (const k of s.spikes) if (k.k < 1) { k.k = Math.min(1, k.k + STEP / SPIKE_POP); if (k.k === 1) s.events.push({ e: 'pop-spike', x: k.x + 0.5, y: k.y + 0.5 }); }
   stepBalls(L, s);
   stepDoor(s);
+  if (s.ghost) {
+    const k = s.n - s.ghost.delay, P = s.ghost.path;
+    s.gpos = k >= 0 && k * 2 + 1 < P.length ? [P[k * 2], P[k * 2 + 1]] : null;
+  }
+  s.n++;
   if (s.status === 'play') stepTraps(L, s);
   if (s.status === 'play') { const c = touchesHazard(L, s); if (c) die(s, c); }
   if (s.status === 'play' && !doorMoving(s)) {

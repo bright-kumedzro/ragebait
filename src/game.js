@@ -28,6 +28,13 @@ const CAUSE_TAUNTS = {
   fake: ['Just kidding.', 'lol no.', 'You really thought.'],
 };
 let fakesLeft = 0, faking = false, fakeCheckpoint = false; // chapter 4's fake wins and fake checkpoints
+let corpses = [], path = [], lastPath = null, crashTimer = 0; // chapter 5: bodies you left, the ghost's route, the fake crash
+
+// What a fresh attempt starts with: which try it is, last try's ghost, and the bodies so far.
+const stateOpts = () => ({
+  attempt: runDeaths + 1, corpses,
+  ghost: L.ghost && lastPath ? { path: lastPath, delay: Math.round(L.ghost / STEP) } : null,
+});
 
 export function boot() {
   const canvas = $('stage');
@@ -61,7 +68,7 @@ export function boot() {
 
   // for the smoke test and debugging
   window.__rb = {
-    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y, chal: chal?.id || null }; },
+    get state() { return { mode, idx, id: LEVELS[idx].id, status: s.status, deaths: runDeaths, t: s.t, x: s.p.x, y: s.p.y, chal: chal?.id || null, corpses: s.corpses.length, ghost: !!s.gpos }; },
     play: (i, inputs) => { startLevel(i); replaying = { inputs, at: 0 }; },
     start: i => startLevel(i),
     routes: (map) => Object.assign(routes, map),
@@ -91,7 +98,8 @@ function startLevel(i, c = null) {
   chal = c;
   loadLevel(i);
   runDeaths = c ? c.rec.cur.deaths : 0; runTime = c ? c.rec.cur.time : 0;
-  s = createState(L, { attempt: runDeaths + 1 });
+  corpses = []; path = []; lastPath = null; hideCrash();
+  s = createState(L, stateOpts());
   fakesLeft = L.fakeWin; faking = false; fakeCheckpoint = false;
   deadT = 0; acc = 0;
   const lv = LEVELS[i];
@@ -102,7 +110,7 @@ function startLevel(i, c = null) {
   ui.showScreen(null);
   $('hud').hidden = false;
   document.body.classList.add('playing');
-  $('btnFakeSkip').hidden = !L.fakeSkip;
+  showButton();
   const label = c ? `Challenge ${c.rec.deaths.length + 1}/${CHALLENGE_LEVELS} · ${lv.def.name}` : lv.def.name;
   ui.hud(lv.id, label, runDeaths);
   ui.intro(lv.def.name, c ? `Challenge level ${c.rec.deaths.length + 1} of ${CHALLENGE_LEVELS}. Every death counts.` : lv.def.hint || '');
@@ -113,11 +121,26 @@ function startLevel(i, c = null) {
 }
 
 function respawn() {
-  s = createState(L, { attempt: runDeaths + 1 });
-  fakeCheckpoint = false;
+  s = createState(L, stateOpts());
+  fakeCheckpoint = false; path = [];
   deadT = 0; acc = 0;
-  $('btnFakeSkip').hidden = !L.fakeSkip;
+  hideCrash();
+  showButton();
 }
+
+// The corner button: a fake "Skip level" (2-6), or "Don't press" (chapter 5), which you have to press.
+function showButton() {
+  const b = $('btnFakeSkip');
+  b.hidden = !(L.fakeSkip || L.button);
+  b.innerHTML = L.button ? ui.esc(L.button) : 'Skip level <span aria-hidden="true">▸▸</span>';
+}
+
+function showCrash(seconds = 3.5) {
+  $('fakeCrash').hidden = false;
+  clearTimeout(crashTimer);
+  crashTimer = setTimeout(hideCrash, seconds * 1000);
+}
+function hideCrash() { clearTimeout(crashTimer); $('fakeCrash').hidden = true; }
 
 function restart() {
   if (mode === 'pause') resume();
@@ -146,6 +169,7 @@ function frame(now) {
         let input = readInput();
         if (replaying) input = replaying.inputs[replaying.at++] || { l: 0, r: 0, j: 0 };
         step(L, s, input);
+        if (L.ghost) path.push(s.p.x, s.p.y);
         drain();
       } else if (s.status === 'dead') {
         deadT += STEP;
@@ -163,7 +187,7 @@ function drain() {
       case 'jump': sound.jump(); save.stats.jumps++; break;
       case 'land': sound.land(); break;
       case 'bump': sound.bump(); break;
-      case 'die': onDeath(ev.cause); break;
+      case 'die': onDeath(ev.cause, ev); break;
       case 'slam': sound.slam(); break;
       case 'pop': sound.pop(); break;
       case 'shoot': sound.shoot(); break;
@@ -174,8 +198,10 @@ function drain() {
         if (ev.kind === 'fall') sound.fall();
         else if (ev.kind === 'spikes') { if (!ev.quiet) sound.spike(); }
         else if (ev.kind === 'checkpoint') { sound.check(); fakeCheckpoint = true; ui.taunt('Checkpoint saved!'); }
-        else if (ev.kind === 'speed') sound.flip();
-        else if (ev.kind === 'mirror') sound.flip();
+        else if (ev.kind === 'speed' || ev.kind === 'mirror' || ev.kind === 'swap' || ev.kind === 'rotate') sound.flip();
+        else if (ev.kind === 'lag' || ev.kind === 'auto') sound.lol();
+        else if (ev.kind === 'dark') sound.bump();
+        else if (ev.kind === 'crash') { sound.error(); showCrash(L.traps[ev.i].seconds); }
         else if (ev.kind === 'door') sound.door();
         else if (ev.kind === 'flip') sound.flip();
         else if (ev.kind === 'reverse') sound.lol();
@@ -187,8 +213,10 @@ function drain() {
   s.events.length = 0;
 }
 
-function onDeath(cause) {
+function onDeath(cause, ev) {
   sound.die();
+  if (L.corpses && ev && corpses.length < 40) corpses.push([Math.floor(ev.x), Math.floor(ev.y)]);
+  if (L.ghost) { lastPath = path; path = []; }
   runDeaths++; save.deaths++;
   levelSave(LEVELS[idx].id).deaths++;
   if (chal) { chal.rec.cur.deaths = runDeaths; chal.rec.cur.time = runTime; }
@@ -291,6 +319,7 @@ function toMenu() {
   for (const id of ['mdlPause', 'mdlResult']) ui.showModal(id, false);
   ui.hideIntro();
   chToken++; liveNudge = null; // stops any live challenge refresh
+  hideCrash();
 }
 
 function goTitle() {
@@ -587,8 +616,12 @@ function wireButtons() {
   on('btnFakeSkip', () => {
     if (mode !== 'play' || s.status !== 'play') return;
     $('btnFakeSkip').hidden = true;
-    fireExternal(L, s, 'skip');
+    fireExternal(L, s, L.button ? 'button' : 'skip');
     drain();
+  });
+  on('fakeReload', () => {
+    hideCrash();
+    if (mode === 'play' && s.status === 'play') { fireExternal(L, s, 'reload'); drain(); }
   });
   $('logo').addEventListener('click', () => {
     const el = $('logo');

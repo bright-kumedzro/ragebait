@@ -35,7 +35,8 @@ export function paintIcons(root = document) {
 // ---------- palette ----------
 export function applyTheme(th) {
   const r = document.documentElement.style;
-  r.setProperty('--air', th.air); r.setProperty('--solid', th.solid); r.setProperty('--ink', th.ink);
+  // in the menus, --solid is the accent: headings, buttons and borders (the canvas draws from the theme itself)
+  r.setProperty('--air', th.air); r.setProperty('--solid', th.accent || th.solid); r.setProperty('--ink', th.ink);
   r.setProperty('--door', th.door); r.setProperty('--ui', th.ui);
   r.setProperty('--paper', th.paper || th.air); r.setProperty('--text', th.text || th.ink);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', th.air);
@@ -105,7 +106,7 @@ export function renderLevels(current, onPick) {
     const sec = document.createElement('section');
     sec.className = 'chapter';
     sec.style.cssText = `--c-air:${th.air};--c-solid:${th.solid};--c-ink:${th.ink}`;
-    sec.innerHTML = `<h3 style="color:${th.solid}">${c + 1}. ${ch.name}</h3><p>${ch.blurb}</p><div class="grid"></div>`;
+    sec.innerHTML = `<h3 style="color:${th.accent || th.solid}">${c + 1}. ${ch.name}</h3><p>${ch.blurb}</p><div class="grid"></div>`;
     const grid = sec.querySelector('.grid');
     levels.forEach((def, i) => {
       const idx = n++, lv = LEVELS[idx], ls = save.levels[lv.id];
@@ -203,7 +204,7 @@ export function renderPicker(picked, onToggle) {
     const th = CHAPTERS[c].theme, sec = document.createElement('section');
     sec.className = 'chapter';
     sec.style.cssText = `--c-air:${th.air};--c-solid:${th.solid};--c-ink:${th.ink}`;
-    sec.innerHTML = `<h3 style="color:${th.solid}">${c + 1}. ${CHAPTERS[c].name}</h3><div class="grid"></div>`;
+    sec.innerHTML = `<h3 style="color:${th.accent || th.solid}">${c + 1}. ${CHAPTERS[c].name}</h3><div class="grid"></div>`;
     const grid = sec.querySelector('.grid');
     levels.forEach((def, i) => {
       const idx = n++, lv = LEVELS[idx], done = isCleared(idx), order = picked.indexOf(lv.id);
