@@ -90,7 +90,7 @@ export default [
       ################################
       ################################`,
     traps: [
-      { when: { t: 0.3 }, do: 'balls', from: 'C', v: [-6, -3], bounce: 0.85, n: 1, every: 1.1 },
+      { when: { t: 0.3 }, do: 'balls', from: 'C', v: [-6, -3], bounce: 0.85, n: 1, every: 0.9 },
     ],
   },
   {

@@ -5,10 +5,11 @@
 // that does lives in the state object (s), which is plain data so structuredClone can copy it.
 import {
   STEP, PLAYER_W, PLAYER_H, RUN, ACCEL, AIR_ACCEL, DECEL, GRAVITY, JUMP_V, JUMP_CUT, MAX_FALL, COYOTE, BUFFER,
-  FALL_GRAVITY, BALL_GRAVITY, BALL_R, DOOR_SPEED, SPIKE_POP,
+  FALL_GRAVITY, BALL_GRAVITY, BALL_R, DOOR_SPEED, SPIKE_POP, SPRING_V, SAW_R, SAW_SPEED,
 } from './config.js';
 
-export const AIR = 0, SOLID = 1, SPIKE_U = 2, SPIKE_D = 3, SPIKE_L = 4, SPIKE_R = 5, BONK = 6;
+// SPRING is a bounce pad: not solid, it throws you away from whatever it sits on.
+export const AIR = 0, SOLID = 1, SPIKE_U = 2, SPIKE_D = 3, SPIKE_L = 4, SPIKE_R = 5, BONK = 6, SPRING = 7;
 export const isSpike = t => t >= SPIKE_U && t <= SPIKE_R;
 const EPS = 1e-6;
 
@@ -46,6 +47,21 @@ export function createState(L, { attempt = 1, ghost = null, corpses = [] } = {})
     speed: 1,           // run-speed multiplier (the 'speed' trap)
     mirror: false,      // the view is flipped left to right (drawing only; the controls don't change)
     grid,
+    pw: PLAYER_W, ph: PLAYER_H, // the runner's size (the 'size' trap changes it)
+    jumpK: 1, gk: 1, springK: 1, // jump strength, gravity and spring strength multipliers
+    wind: 0,            // tiles per second added to your movement
+    ice: false,         // the ground is slippery
+    belts: [],          // [group, speed] pairs: standing on the group carries you along
+    saws: [],           // buzzsaws: { x, y, r, legs, leg, speed, loop, hold, wait, done, chase }
+    lava: L.lava ?? 1e9, lavaTo: L.lava ?? 1e9, lavaV: 0, // the lava's surface (y) and where it's heading
+    bombs: [],          // lit bombs: { x, y, t, max, r }
+    clock: 0,           // the time you die at (the 'clock' trap); 0 = no countdown
+    levers: L.levers.map(() => 0),
+    coins: L.coins.map(() => 0), coinsGot: 0,
+    idle: 0,            // seconds since you last pressed anything
+    jumps: 0,
+    portal: -1,         // the portal you're standing in, so you don't bounce straight back
+    signs: {},          // sign texts a trap has changed (drawing only)
     p: { x: L.start.x, y: L.start.y, vx: 0, vy: 0, ground: true, coyote: 0, buffer: 0, jHeld: false, face: 1, run: 0, air: 0 },
     grav: 1,            // 1 = down, -1 = up
     rev: false,         // left and right swapped
@@ -73,6 +89,9 @@ export function cloneState(s) {
   c.balls = s.balls.map(b => ({ ...b }));
   c.spawners = s.spawners.map(x => ({ ...x }));
   c.pending = s.pending.map(q => ({ ...q }));
+  c.saws = s.saws.map(w => ({ ...w }));
+  c.bombs = s.bombs.map(b => ({ ...b }));
+  c.levers = s.levers.slice(); c.coins = s.coins.slice();
   return c;
 }
 
@@ -106,9 +125,9 @@ function moveX(L, s, dx, skip) {
   const p = s.p;
   if (!dx) return false;
   let nx = p.x + dx, hit = false;
-  for (const r of solidsIn(L, s, nx, p.y, PLAYER_W, PLAYER_H, skip)) {
+  for (const r of solidsIn(L, s, nx, p.y, s.pw, s.ph, skip)) {
     hit = true;
-    nx = dx > 0 ? Math.min(nx, r.x - PLAYER_W) : Math.max(nx, r.x + 1);
+    nx = dx > 0 ? Math.min(nx, r.x - s.pw) : Math.max(nx, r.x + 1);
   }
   p.x = nx;
   return hit;
@@ -120,11 +139,11 @@ function moveY(L, s, dy, skip) {
   if (!dy) return null;
   const head = dy * s.grav < 0; // moving against gravity
   let ny = p.y + dy, hit = null;
-  for (const r of solidsIn(L, s, p.x, ny, PLAYER_W, PLAYER_H, skip, head)) {
+  for (const r of solidsIn(L, s, p.x, ny, s.pw, s.ph, skip, head)) {
     // a hidden block only counts if it was fully beyond the player's head before this step
-    if (r.bonk && (dy < 0 ? r.y + 1 > p.y + EPS : r.y < p.y + PLAYER_H - EPS)) continue;
+    if (r.bonk && (dy < 0 ? r.y + 1 > p.y + EPS : r.y < p.y + s.ph - EPS)) continue;
     hit = r;
-    ny = dy > 0 ? Math.min(ny, r.y - PLAYER_H) : Math.max(ny, r.y + 1);
+    ny = dy > 0 ? Math.min(ny, r.y - s.ph) : Math.max(ny, r.y + 1);
   }
   p.y = ny;
   return hit;
@@ -136,45 +155,67 @@ function stepPlayer(L, s, input) {
   if (s.rev) dir = -dir;
   if (s.auto) dir = s.auto;
   const target = dir * RUN * s.speed;
-  const a = (!p.ground ? AIR_ACCEL : dir ? ACCEL : DECEL) * Math.max(1, s.speed);
+  let a = (!p.ground ? AIR_ACCEL : dir ? ACCEL : DECEL) * Math.max(1, s.speed);
+  if (s.ice && p.ground) a *= 0.12; // black ice: slow to start, slower to stop
   p.vx = p.vx < target ? Math.min(target, p.vx + a * dt) : Math.max(target, p.vx - a * dt);
   if (dir) p.face = dir;
 
   if (input.j && !p.jHeld) p.buffer = BUFFER;
   p.jHeld = !!input.j;
   p.coyote = p.ground ? COYOTE : p.coyote - dt;
-  if (p.buffer > 0 && p.coyote > 0) {
-    p.vy = -JUMP_V * s.grav; p.buffer = 0; p.coyote = 0; p.ground = false;
-    s.jumped = true;
-    s.events.push({ e: 'jump', x: p.x + PLAYER_W / 2, y: p.y + PLAYER_H });
+  if (p.buffer > 0 && p.coyote > 0 && s.jumpK > 0) {
+    p.vy = -JUMP_V * s.jumpK * s.grav; p.buffer = 0; p.coyote = 0; p.ground = false;
+    s.jumped = true; s.jumps++;
+    s.events.push({ e: 'jump', x: p.x + s.pw / 2, y: p.y + s.ph });
   }
   p.buffer -= dt;
-  if (!input.j && p.vy * s.grav < -JUMP_CUT) p.vy = -JUMP_CUT * s.grav;
-  p.vy += GRAVITY * s.grav * dt;
-  if (Math.abs(p.vy) > MAX_FALL) p.vy = Math.sign(p.vy) * MAX_FALL;
+  if (!input.j && p.vy * s.grav < -JUMP_CUT && !p.sprung) p.vy = -JUMP_CUT * s.grav;
+  p.vy += GRAVITY * s.gk * s.grav * dt;
+  if (p.vy * s.grav > MAX_FALL) p.vy = MAX_FALL * s.grav;
+  if (p.vy * s.grav >= 0) p.sprung = false;
 
   if (moveX(L, s, p.vx * dt)) p.vx = 0;
+  if (s.wind) moveX(L, s, s.wind * dt);
+  if (s.belts.length && p.ground) for (const [g, v] of s.belts) if (v && standsOn(L, s, g)) { moveX(L, s, v * dt); break; }
   const wasGround = p.ground, vyBefore = p.vy;
   p.ground = false;
   const hit = moveY(L, s, p.vy * dt);
   if (hit) {
     if (p.vy * s.grav > 0) p.ground = true;
     else if (hit.bonk) bonk(L, s, hit.x, hit.y);
-    else s.events.push({ e: 'bump', x: p.x + PLAYER_W / 2, y: p.y });
+    else s.events.push({ e: 'bump', x: p.x + s.pw / 2, y: p.y });
     p.vy = 0;
   }
-  if (p.ground && !wasGround && Math.abs(vyBefore) > 6) s.events.push({ e: 'land', x: p.x + PLAYER_W / 2, y: s.grav > 0 ? p.y + PLAYER_H : p.y, v: Math.abs(vyBefore) });
+  if (p.ground && !wasGround && Math.abs(vyBefore) > 6) s.events.push({ e: 'land', x: p.x + s.pw / 2, y: s.grav > 0 ? p.y + s.ph : p.y, v: Math.abs(vyBefore) });
+  springs(L, s);
   p.air = p.ground ? 0 : p.air + dt;
   p.run = p.ground && Math.abs(p.vx) > 0.5 ? p.run + Math.abs(p.vx) * dt : 0;
+}
+
+// A spring is the 0.4 tiles of its cell next to what it sits on. Touch that while not already flying away from it
+// and it throws you away from it (up, for one on the floor).
+export const springBase = (L, grid, cx, cy) => (cy + 1 >= L.h || grid[(cy + 1) * L.w + cx] === SOLID ? 1 : cy > 0 && grid[(cy - 1) * L.w + cx] === SOLID ? -1 : 1);
+function springs(L, s) {
+  const p = s.p, x0 = Math.floor(p.x), x1 = Math.floor(p.x + s.pw - EPS), y0 = Math.floor(p.y), y1 = Math.floor(p.y + s.ph - EPS);
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    if (cell(L, s, cx, cy) !== SPRING) continue;
+    const b = springBase(L, s.grid, cx, cy); // 1: sits on the floor below, -1: hangs from the ceiling
+    const zy = b > 0 ? cy + 0.6 : cy, hit = overlap(p.x, p.y, s.pw, s.ph, cx + 0.1, zy, 0.8, 0.4);
+    if (!hit || p.vy * b < -EPS) continue;
+    p.vy = -b * SPRING_V * s.springK; p.ground = false; p.coyote = 0; p.sprung = true;
+    s.sprung = true;
+    s.events.push({ e: 'spring', x: cx + 0.5, y: b > 0 ? cy + 1 : cy, cx, cy });
+    return;
+  }
 }
 
 // Which mover (if any) the player is standing on: their feet rest on one of its boxes.
 function standingOn(s) {
   const p = s.p;
   if (!p.ground) return null;
-  const fy = s.grav > 0 ? p.y + PLAYER_H : p.y;
+  const fy = s.grav > 0 ? p.y + s.ph : p.y;
   for (const r of moverRects(s)) {
-    if (p.x + PLAYER_W <= r.x + EPS || p.x >= r.x + 1 - EPS) continue;
+    if (p.x + s.pw <= r.x + EPS || p.x >= r.x + 1 - EPS) continue;
     const top = s.grav > 0 ? r.y : r.y + 1;
     if (Math.abs(fy - top) < 0.02) return r.m;
   }
@@ -215,13 +256,13 @@ function stepMovers(L, s) {
     const rider = standingOn(s) === m;
     m.ox += mdx; m.oy += mdy;
     if (rider) { moveX(L, s, mdx, m); moveY(L, s, mdy, m); }
-    const hits = solidsIn(L, s, p.x, p.y, PLAYER_W, PLAYER_H).filter(r => r.m === m);
+    const hits = solidsIn(L, s, p.x, p.y, s.pw, s.ph).filter(r => r.m === m);
     if (hits.length) {
       for (const r of hits) {
-        if (Math.abs(mdx) > Math.abs(mdy)) p.x = mdx > 0 ? Math.max(p.x, r.x + 1) : Math.min(p.x, r.x - PLAYER_W);
-        else p.y = mdy > 0 ? Math.max(p.y, r.y + 1) : Math.min(p.y, r.y - PLAYER_H);
+        if (Math.abs(mdx) > Math.abs(mdy)) p.x = mdx > 0 ? Math.max(p.x, r.x + 1) : Math.min(p.x, r.x - s.pw);
+        else p.y = mdy > 0 ? Math.max(p.y, r.y + 1) : Math.min(p.y, r.y - s.ph);
       }
-      if (blocked(L, s, p.x, p.y, PLAYER_W, PLAYER_H)) die(s, 'crush');
+      if (blocked(L, s, p.x, p.y, s.pw, s.ph)) die(s, 'crush');
     }
   }
 }
@@ -239,31 +280,38 @@ function spikeBox(x, y, dir, k = 1) {
 }
 
 function touchesHazard(L, s) {
-  const p = s.p, x0 = Math.floor(p.x), x1 = Math.floor(p.x + PLAYER_W), y0 = Math.floor(p.y), y1 = Math.floor(p.y + PLAYER_H);
+  const p = s.p, x0 = Math.floor(p.x), x1 = Math.floor(p.x + s.pw), y0 = Math.floor(p.y), y1 = Math.floor(p.y + s.ph);
   for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
     const t = cell(L, s, cx, cy);
-    if (isSpike(t) && overlap(p.x, p.y, PLAYER_W, PLAYER_H, ...spikeBox(cx, cy, t))) return 'spike';
+    if (isSpike(t) && overlap(p.x, p.y, s.pw, s.ph, ...spikeBox(cx, cy, t))) return 'spike';
   }
-  for (const k of s.spikes) if (k.k > 0.5 && overlap(p.x, p.y, PLAYER_W, PLAYER_H, ...spikeBox(k.x, k.y, k.dir, k.k))) return 'spike';
+  for (const k of s.spikes) if (k.k > 0.5 && overlap(p.x, p.y, s.pw, s.ph, ...spikeBox(k.x, k.y, k.dir, k.k))) return 'spike';
   for (const m of s.movers) {
     if (m.gone || !m.spikes) continue;
-    for (const [cx, cy, dir] of m.spikeCells) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, ...spikeBox(cx + m.ox, cy + m.oy, dir))) return 'spike';
+    for (const [cx, cy, dir] of m.spikeCells) if (overlap(p.x, p.y, s.pw, s.ph, ...spikeBox(cx + m.ox, cy + m.oy, dir))) return 'spike';
   }
   for (const b of s.balls) {
-    const nx = Math.max(p.x, Math.min(b.x, p.x + PLAYER_W)), ny = Math.max(p.y, Math.min(b.y, p.y + PLAYER_H));
+    const nx = Math.max(p.x, Math.min(b.x, p.x + s.pw)), ny = Math.max(p.y, Math.min(b.y, p.y + s.ph));
     if ((b.x - nx) ** 2 + (b.y - ny) ** 2 < (b.r - 0.08) ** 2) return 'ball';
   }
-  for (const f of L.fakeDoors) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, f.x + 0.15, f.y + 0.2, 0.7, 1.2)) return 'bite';
-  for (const f of L.fakeKeys) if (overlap(p.x, p.y, PLAYER_W, PLAYER_H, f.x - 0.28, f.y - 0.32, 0.56, 0.64)) return 'fakekey';
-  if (s.gpos && overlap(p.x, p.y, PLAYER_W, PLAYER_H, s.gpos[0] + 0.1, s.gpos[1] + 0.12, PLAYER_W - 0.2, PLAYER_H - 0.2)) return 'ghost';
-  const out = s.grav > 0 ? p.y > L.h + 1 : p.y + PLAYER_H < -1;
+  for (const f of L.fakeDoors) if (overlap(p.x, p.y, s.pw, s.ph, f.x + 0.15, f.y + 0.2, 0.7, 1.2)) return 'bite';
+  for (const f of L.fakeKeys) if (overlap(p.x, p.y, s.pw, s.ph, f.x - 0.28, f.y - 0.32, 0.56, 0.64)) return 'fakekey';
+  if (s.gpos && overlap(p.x, p.y, s.pw, s.ph, s.gpos[0] + 0.1, s.gpos[1] + 0.12, s.pw - 0.2, s.ph - 0.2)) return 'ghost';
+  for (const w of s.saws) {
+    const nx = Math.max(p.x, Math.min(w.x, p.x + s.pw)), ny = Math.max(p.y, Math.min(w.y, p.y + s.ph));
+    if ((w.x - nx) ** 2 + (w.y - ny) ** 2 < (w.r - 0.12) ** 2) return 'saw';
+  }
+  if (p.y + s.ph > s.lava + 0.2) return 'lava';
+  if (s.clock && s.t >= s.clock) return 'time';
+  if (L.wrap) return '';
+  const out = s.grav > 0 ? p.y > L.h + 1 : p.y + s.ph < -1;
   return out ? 'fall' : '';
 }
 
 function die(s, cause) {
   if (s.status !== 'play') return;
   s.status = 'dead'; s.cause = cause;
-  s.events.push({ e: 'die', cause, x: s.p.x + PLAYER_W / 2, y: s.p.y + PLAYER_H / 2 });
+  s.events.push({ e: 'die', cause, x: s.p.x + s.pw / 2, y: s.p.y + s.ph / 2 });
 }
 
 function stepBalls(L, s) {
@@ -314,15 +362,92 @@ function stepKeys(s) {
     if (k.got) continue;
     const dx = k.tx - k.x, dy = k.ty - k.y, dist = Math.hypot(dx, dy);
     if (dist) { const st = (k.speed || 12) * STEP; if (dist <= st) { k.x = k.tx; k.y = k.ty; } else { k.x += dx / dist * st; k.y += dy / dist * st; } }
-    if (s.status === 'play' && overlap(p.x, p.y, PLAYER_W, PLAYER_H, k.x - 0.3, k.y - 0.35, 0.6, 0.7)) {
+    if (s.status === 'play' && overlap(p.x, p.y, s.pw, s.ph, k.x - 0.3, k.y - 0.35, 0.6, 0.7)) {
       k.got = true; s.got++;
       s.events.push({ e: 'key', x: k.x, y: k.y, left: s.keys.length - s.got });
     }
   }
 }
 
+// ---------- saws, lava, bombs ----------
+function stepSaws(s) {
+  const dt = STEP, [px] = center(s);
+  for (const w of s.saws) {
+    if (w.chase) { // rolls after you along its row
+      const dx = px - w.x;
+      w.x += Math.sign(dx) * Math.min(Math.abs(dx), w.chase * dt);
+      continue;
+    }
+    if (w.wait > 0) { w.wait -= dt; continue; }
+    if (w.done) continue;
+    const [tx, ty] = w.legs[w.leg], dx = tx - w.x, dy = ty - w.y, d = Math.hypot(dx, dy), st = w.speed * dt;
+    if (d <= st) {
+      w.x = tx; w.y = ty;
+      if (w.leg + 1 < w.legs.length) { w.leg++; w.wait = w.hold; }
+      else if (w.loop) { w.leg = 0; w.wait = w.hold; }
+      else w.done = true;
+    } else { w.x += dx / d * st; w.y += dy / d * st; }
+  }
+}
+
+function stepLava(s) {
+  if (s.lava === s.lavaTo) return;
+  const d = s.lavaTo - s.lava, st = s.lavaV * STEP;
+  s.lava = Math.abs(d) <= st ? s.lavaTo : s.lava + Math.sign(d) * st;
+}
+
+// A bomb blows away every solid tile, spike and spring within its radius, and you, if you're close.
+function stepBombs(L, s) {
+  for (const b of s.bombs) {
+    b.t -= STEP;
+    if (b.t > 0) continue;
+    b.gone = true;
+    const r = b.r;
+    for (let cy = Math.floor(b.y - r); cy <= Math.floor(b.y + r); cy++) for (let cx = Math.floor(b.x - r); cx <= Math.floor(b.x + r); cx++) {
+      if (cx < 0 || cx >= L.w || cy < 0 || cy >= L.h || Math.hypot(cx + 0.5 - b.x, cy + 0.5 - b.y) > r) continue;
+      if (s.grid[cy * L.w + cx] !== AIR) { s.grid[cy * L.w + cx] = AIR; s.edits++; }
+    }
+    s.spikes = s.spikes.filter(k => Math.hypot(k.x + 0.5 - b.x, k.y + 0.5 - b.y) > r);
+    s.events.push({ e: 'boom', x: b.x, y: b.y, r });
+    const [cx, cy] = center(s);
+    if (s.status === 'play' && Math.hypot(cx - b.x, cy - b.y) < r * 0.85) die(s, 'boom');
+  }
+  s.bombs = s.bombs.filter(b => !b.gone);
+}
+
+// Coins (bait), levers and portals: things you touch.
+function stepTouch(L, s) {
+  const p = s.p;
+  L.coins.forEach((c, i) => {
+    if (s.coins[i] || !overlap(p.x, p.y, s.pw, s.ph, c.x - 0.3, c.y - 0.3, 0.6, 0.6)) return;
+    s.coins[i] = 1; s.coinsGot++;
+    s.events.push({ e: 'coin', x: c.x, y: c.y, n: s.coinsGot });
+  });
+  L.levers.forEach((v, i) => {
+    if (s.levers[i] || !overlap(p.x, p.y, s.pw, s.ph, v.x + 0.15, v.y + 0.3, 0.7, 0.7)) return;
+    s.levers[i] = 1;
+    s.events.push({ e: 'lever', x: v.x + 0.5, y: v.y + 0.6, i });
+  });
+  let inside = -1;
+  for (let i = 0; i < L.portals.length * 2 && inside < 0; i++) {
+    const [cx, cy] = L.portals[i >> 1][i & 1];
+    if (overlap(p.x, p.y, s.pw, s.ph, cx + 0.25, cy - 0.6, 0.5, 1.6)) inside = i;
+  }
+  if (inside >= 0 && inside !== s.portal) {
+    const [ox, oy] = L.portals[inside >> 1][inside & 1], [tx, ty] = L.portals[inside >> 1][1 - (inside & 1)];
+    // you come out at the same spot relative to the other portal, unless that's inside something: then standing in
+    // it, and if even that's blocked, the portal does nothing
+    const nx = p.x + tx - ox, ny = p.y + ty - oy, sx = tx + 0.5 - s.pw / 2, sy = ty + 1 - s.ph;
+    if (!blocked(L, s, nx, ny, s.pw, s.ph)) { p.x = nx; p.y = ny; }
+    else if (!blocked(L, s, sx, sy, s.pw, s.ph)) { p.x = sx; p.y = sy; }
+    else return;
+    s.portal = inside ^ 1; // arriving in the other end doesn't send you back
+    s.events.push({ e: 'warp', x: ox + 0.5, y: oy + 0.3, tx: tx + 0.5, ty: ty + 0.3 });
+  } else if (inside < 0) s.portal = -1;
+}
+
 // ---------- traps ----------
-const center = s => [s.p.x + PLAYER_W / 2, s.p.y + PLAYER_H / 2];
+const center = s =>[s.p.x + s.pw / 2, s.p.y + s.ph / 2];
 
 function groupTouch(L, s, g, pad) {
   const p = s.p;
@@ -331,7 +456,7 @@ function groupTouch(L, s, g, pad) {
     for (const [cx, cy] of grp.solid.concat(grp.hidden)) {
       const m = s.movers.find(m => m.g === ch && !m.gone);
       const ox = m ? m.ox : 0, oy = m ? m.oy : 0;
-      if (overlap(p.x - pad, p.y - pad, PLAYER_W + pad * 2, PLAYER_H + pad * 2, cx + ox, cy + oy, 1, 1)) return true;
+      if (overlap(p.x - pad, p.y - pad, s.pw + pad * 2, s.ph + pad * 2, cx + ox, cy + oy, 1, 1)) return true;
     }
   }
   return false;
@@ -340,13 +465,13 @@ function groupTouch(L, s, g, pad) {
 function standsOn(L, s, g) {
   const p = s.p;
   if (!p.ground) return false;
-  const fy = s.grav > 0 ? p.y + PLAYER_H + 0.05 : p.y - 0.05;
+  const fy = s.grav > 0 ? p.y + s.ph + 0.05 : p.y - 0.05;
   for (const ch of g) {
     const grp = L.groups[ch], m = s.movers.find(m => m.g === ch && !m.gone);
     const ox = m ? m.ox : 0, oy = m ? m.oy : 0;
     for (const [cx, cy] of grp.solid.concat(grp.hidden)) {
       if (!m && s.grid[cy * L.w + cx] !== SOLID) continue;
-      if (p.x + PLAYER_W > cx + ox + EPS && p.x < cx + ox + 1 - EPS && fy > cy + oy && fy < cy + oy + 1) return true;
+      if (p.x + s.pw > cx + ox + EPS && p.x < cx + ox + 1 - EPS && fy > cy + oy && fy < cy + oy + 1) return true;
     }
   }
   return false;
@@ -374,6 +499,11 @@ function triggered(L, s, w, i) {
   if (w.stand && !standsOn(L, s, w.stand)) return false;
   if (w.touch && !groupTouch(L, s, w.touch, 0.04)) return false;
   if (w.ground && !s.p.ground) return false;
+  if (w.idle !== undefined && s.idle < w.idle) return false;
+  if (w.jumps !== undefined && s.jumps < w.jumps) return false;
+  if (w.spring && !s.sprung) return false;
+  if (w.coins !== undefined && s.coinsGot < w.coins) return false;
+  if (w.lever !== undefined && !s.levers[w.lever]) return false;
   if (w.bonk || w.ui) return false; // fired by the physics (see bonk) or by the UI (see fireExternal)
   return true;
 }
@@ -471,7 +601,7 @@ function apply(L, s, i) {
     case 'show':
       for (const ch of tr.g) for (const c of L.groups[ch].hidden) s.grid[c[1] * L.w + c[0]] = SOLID;
       s.edits++;
-      if (blocked(L, s, s.p.x, s.p.y, PLAYER_W, PLAYER_H)) die(s, 'crush');
+      if (blocked(L, s, s.p.x, s.p.y, s.pw, s.ph)) die(s, 'crush');
       break;
     case 'spikes':
       for (const ch of tr.g) for (const c of L.groups[ch].hidden) s.spikes.push({ x: c[0], y: c[1], dir: c[2], k: tr.invisible ? 1 : 0, inv: !!tr.invisible });
@@ -506,6 +636,37 @@ function apply(L, s, i) {
     case 'reverse': s.rev = !s.rev; break;
     case 'kill': die(s, tr.cause || 'trap'); break;
     case 'say': break;
+    case 'saw':
+      s.saws.push({ x: tr.from[0], y: tr.from[1], r: tr.r || SAW_R, legs: tr.path || [], leg: 0, speed: tr.speed || SAW_SPEED,
+        loop: !!tr.loop, hold: tr.hold ?? 0.3, wait: 0, done: !(tr.path && tr.path.length), chase: tr.chase || 0 });
+      break;
+    case 'lava':
+      if (s.lava > L.h + 2) s.lava = L.h + 1;
+      s.lavaTo = tr.to; s.lavaV = tr.speed || 1.5;
+      break;
+    case 'bomb': s.bombs.push({ x: tr.at[0], y: tr.at[1], t: tr.fuse ?? 1.5, max: tr.fuse ?? 1.5, r: tr.radius ?? 2.2 }); break;
+    case 'clock': s.clock = tr.seconds ? s.t + tr.seconds : 0; break;
+    case 'jump': s.jumpK = tr.factor ?? 1; break;
+    case 'gravity': s.gk = tr.factor ?? 1; break;
+    case 'spring': s.springK = tr.factor ?? 1; break;
+    case 'wind': s.wind = tr.v ?? 0; break;
+    case 'ice': s.ice = tr.on !== false; break;
+    case 'belt': s.belts = [...s.belts.filter(([g]) => g !== tr.g), [tr.g, tr.v ?? 0]]; break;
+    case 'sign': s.signs = { ...s.signs, [tr.i ?? 0]: tr.text }; break;
+    case 'warp': {
+      const p = s.p;
+      s.events.push({ e: 'warp', x: p.x + s.pw / 2, y: p.y + s.ph / 2, tx: tr.to[0], ty: tr.to[1] });
+      p.x = tr.to[0] - s.pw / 2; p.y = tr.to[1] - s.ph; p.vx = 0; p.vy = 0;
+      break;
+    }
+    case 'size': { // grows or shrinks around your feet; growing into a wall squashes you
+      const p = s.p, f = tr.factor ?? 1, w = PLAYER_W * f, h = PLAYER_H * f;
+      p.x += (s.pw - w) / 2;
+      if (s.grav > 0) p.y += s.ph - h;
+      s.pw = w; s.ph = h;
+      if (blocked(L, s, p.x, p.y, s.pw, s.ph)) die(s, 'crush');
+      break;
+    }
     default: throw new Error(`unknown trap: ${tr.do}`);
   }
 }
@@ -515,7 +676,8 @@ function apply(L, s, i) {
 export function step(L, s, input) {
   if (s.status !== 'play') return s.status;
   s.t += STEP;
-  s.jumped = false;
+  s.jumped = false; s.sprung = false;
+  s.idle = input.l || input.r || input.j ? 0 : s.idle + STEP;
   if (s.lag) { // inputs join a queue and come out `lag` steps later
     s.inq.push((input.l ? 1 : 0) | (input.r ? 2 : 0) | (input.j ? 4 : 0));
     const q = s.inq.length > s.lag ? s.inq.shift() : 0;
@@ -524,7 +686,17 @@ export function step(L, s, input) {
   const wasGround = s.p.ground;
   stepMovers(L, s);
   if (s.status === 'play') stepPlayer(L, s, input);
+  if (L.wrap) { // fall out of the bottom, come back in at the top (and the other way round)
+    const p = s.p, y0 = p.y;
+    if (s.grav > 0 && p.y > L.h) p.y -= L.h + s.ph;
+    else if (s.grav < 0 && p.y + s.ph < 0) p.y += L.h + s.ph;
+    if (p.y !== y0) s.events.push({ e: 'wrap', x: p.x + s.pw / 2, y: p.y });
+  }
   s.landed = s.p.ground && !wasGround;
+  if (s.saws.length) stepSaws(s);
+  stepLava(s);
+  if (s.bombs.length) stepBombs(L, s);
+  if (s.status === 'play') stepTouch(L, s);
   for (const k of s.spikes) if (k.k < 1) { k.k = Math.min(1, k.k + STEP / SPIKE_POP); if (k.k === 1) s.events.push({ e: 'pop-spike', x: k.x + 0.5, y: k.y + 0.5 }); }
   stepBalls(L, s);
   stepDoor(s);
@@ -537,7 +709,7 @@ export function step(L, s, input) {
   if (s.status === 'play') stepTraps(L, s);
   if (s.status === 'play') { const c = touchesHazard(L, s); if (c) die(s, c); }
   if (s.status === 'play' && !doorMoving(s)) {
-    const d = s.door, p = s.p, at = overlap(p.x, p.y, PLAYER_W, PLAYER_H, d.x + 0.15, d.y + 0.25, 0.5, 1.15);
+    const d = s.door, p = s.p, at = overlap(p.x, p.y, s.pw, s.ph, d.x + 0.15, d.y + 0.25, 0.5, 1.15);
     if (at && s.got === s.keys.length) { s.status = 'won'; s.events.push({ e: 'win', x: d.x + 0.4, y: d.y + 0.7 }); }
     else if (at && !s.atDoor) s.events.push({ e: 'locked', left: s.keys.length - s.got, x: d.x + 0.4, y: d.y + 0.7 });
     s.atDoor = at;

@@ -2,7 +2,7 @@
 // src/levels/verify.js for the attempt, button, corpse and ghost cases). Also catches map typos.
 // Usage: node scripts/check-levels.mjs [level ids or chapter numbers...]   e.g. 1-3 2-10, or 7 for all of chapter 7
 import { LEVELS, compile } from '../src/levels/index.js';
-import { verifyLevel } from '../src/levels/verify.js';
+import { verifyLevel, holdRightWins } from '../src/levels/verify.js';
 
 const only = process.argv.slice(2);
 const wanted = lv => !only.length || only.includes(lv.id) || only.includes(String(lv.ch + 1));
@@ -20,6 +20,7 @@ for (const lv of LEVELS) {
     const res = verifyLevel(L, lv.def);
     const ms = (performance.now() - t0).toFixed(0);
     if (!res.ok) { failed++; console.log(`✗ ${lv.id} ${lv.def.name}: ${res.reason}, ${ms} ms`); continue; }
+    if (holdRightWins(L, lv.def)) res.notes.push('WARNING: beatable by just holding right');
     const notes = res.notes.length ? ` (${res.notes.join(', ')})` : '';
     console.log(`✓ ${lv.id.padEnd(5)} ${lv.def.name.padEnd(26)} ${L.w}×${L.h}  solved in ${res.seconds.toFixed(1)} s of play, ${res.nodes} states${notes}, ${ms} ms`);
   } catch (e) { failed++; console.log(`✗ ${lv.id}: ${e.message}`); }

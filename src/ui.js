@@ -1,5 +1,5 @@
 // Menus, HUD text and toasts (DOM). game.js decides when; this file decides how it looks.
-import { CHAPTERS } from './config.js';
+import { CHAPTERS, INTRO_HOLD } from './config.js';
 import { LEVELS, CHAPTER_LEVELS } from './levels/index.js';
 import { save, isCleared, isUnlocked, nextUnplayed } from './save.js';
 
@@ -62,10 +62,10 @@ export function toast(text, ms = 2400) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-// A line in big type, with an emoji sticker popping up above it when there is one.
-export function taunt(text, sticker = '') {
+// A line in big type.
+export function taunt(text) {
   const el = $('taunt');
-  el.innerHTML = (sticker ? `<span class="sticker" aria-hidden="true">${esc(sticker)}</span>` : '') + `<span>${esc(text)}</span>`;
+  el.innerHTML = `<span>${esc(text)}</span>`;
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 
@@ -74,7 +74,7 @@ export function intro(name, hint) {
   $('introName').textContent = name; $('introHint').textContent = hint;
   const el = $('intro');
   el.classList.add('show');
-  clearTimeout(introTimer); introTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  clearTimeout(introTimer); introTimer = setTimeout(() => el.classList.remove('show'), INTRO_HOLD * 1000);
 }
 export function hideIntro() { clearTimeout(introTimer); $('intro').classList.remove('show'); }
 
@@ -265,7 +265,7 @@ export function renderChallenge(st, h) {
   else if (n) head = `Deaths to beat: ${v.players[0].total}`;
   else head = 'Be the first to finish';
   // lost to someone: a little salt underneath
-  const salt = me > 0 ? ['Mogged. 📉', 'Ratio’d. 📉', 'Emotional damage. 💔'][v.id.charCodeAt(0) % 3] : '';
+  const salt = me > 0 ? ['Mogged.', 'Ratio’d.', 'Emotional damage.'][v.id.charCodeAt(0) % 3] : '';
   const status = others.length ? `${others.length} accepted · ${done} finished` : 'Nobody has accepted yet';
   const chips = v.levels.map((id, i) => `<li><b>${i + 1}</b>${esc(id)} · ${esc(levelName(id))}</li>`).join('');
   const rows = v.players.map((p, i) => `<li class="${p.you ? 'you' : ''}"><span class="rank">${i + 1}</span>`

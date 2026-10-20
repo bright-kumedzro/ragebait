@@ -36,9 +36,11 @@ function key(L, s) {
   // time only matters while something is still changing, or a trap that waits for a time hasn't fired yet
   const dynamic = s.pending.length || s.balls.length || s.spawners.some(x => !x.done) || s.door.x !== s.door.tx || s.door.y !== s.door.ty || s.gpos || s.lag
     || s.movers.some(m => !m.gone && !(m.kind === 'move' && m.done)) || L.timedTraps.some(i => !s.fired[i] || L.traps[i].repeat)
-    || s.keys.some(k => k.x !== k.tx || k.y !== k.ty);
+    || s.keys.some(k => k.x !== k.tx || k.y !== k.ty) || s.saws.length || s.bombs.length || s.lava !== s.lavaTo || s.clock;
   return [q(p.x), q(p.y), Math.round(p.vx / 3), Math.round(p.vy / 4), p.ground ? 1 : 0, p.jHeld ? 1 : 0, s.grav, s.rev ? 1 : 0,
-    s.fired.join(''), s.revealed, s.keys.map(k => (k.got ? 1 : 0)).join(''), s.lag ? s.inq.join('') : '', s.auto, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : ''].join(',');
+    s.fired.join(''), s.revealed, s.keys.map(k => (k.got ? 1 : 0)).join(''), s.lag ? s.inq.join('') : '', s.auto, q(s.door.tx), q(s.door.ty), s.edits, dynamic ? Math.round(s.t * 5) : '',
+    s.pw, s.jumpK, s.gk, s.springK, s.wind, s.ice ? 1 : 0, s.belts.join(';'), s.levers.join(''), s.coins.join(''), q(s.lava),
+    L.idleTraps ? Math.min(Math.round(s.idle * 20), L.idleTraps) : '', L.jumpTraps ? s.jumps : ''].join(',');
 }
 
 // Runs `steps` of one action. Returns the state's status.
@@ -55,6 +57,10 @@ function advance(L, s, a, steps) {
 // ghost and corpses: as for createState.
 export function solve(L, { chunk = 8, maxNodes = 200000, weight = 3, attempt = 1, ui = [], ghost = null, corpses = [] } = {}) {
   L.timedTraps ??= L.traps.map((t, i) => (t.when.t !== undefined || t.when.before !== undefined ? i : -1)).filter(i => i >= 0);
+  // idle is keyed in 0.05 s steps (finer than a search move, so waiting adds up), and only up to just past the
+  // longest wait any trap asks for: beyond that, more waiting changes nothing
+  L.idleTraps ??= L.traps.some(t => t.when.idle !== undefined) ? Math.ceil(Math.max(...L.traps.map(t => t.when.idle ?? 0)) * 20) + 1 : 0;
+  L.jumpTraps ??= L.traps.some(t => t.when.jumps !== undefined);
   const perChunk = RUN * chunk * STEP;
   const h = s => {
     // aim for the nearest key still out there, then the door (where it's going, if it's running)

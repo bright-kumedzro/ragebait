@@ -1,18 +1,13 @@
-// Builds chapters 6-20 (150 levels) by remixing the game's traps, and writes them to src/levels/ch6.js … ch20.js
-// as ordinary level files (ASCII map plus traps), so any of them can be hand-edited afterwards.
+// Builds chapter 21, Lost & Found (10 explore levels), and writes it to src/levels/ch21.js as an ordinary level file
+// (ASCII map plus traps), so any level can be hand-edited afterwards. Chapters 1-20 are hand-made.
 //
-// A level is a run of segments (a falling floor, popping spikes, a crusher, an invisible bridge, a mirror zone…)
-// laid out left to right on one floor, picked from the chapter's own mix, plus sometimes a level-wide twist (a spike
-// wall chasing you, auto-run, a ghost of your last try, a fake win, a "Don't press" button). Each level must pass
-// the same proof as the hand-made ones (src/levels/verify.js), and must not be beatable by just holding right; if
-// not, it's rebuilt from the next seed. Seeds are fixed, so running this again gives the same levels.
-// Usage: node scripts/generate-levels.mjs [chapter numbers…] [--keep-linear]   (default: all of 6-21)
-// --keep-linear keeps a chapter file's existing linear levels exactly as they are and only rebuilds its explore levels.
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+// An explore level is a two-storey map with keys spread across its branches (see buildExplore). Each must pass the
+// same proof as the hand-made levels (src/levels/verify.js) and must not be beatable by just holding right; if not,
+// it's rebuilt from the next seed. Seeds are fixed, so running this again gives the same levels.
+// Usage: node scripts/generate-levels.mjs
+import { writeFileSync } from 'node:fs';
 import { compile } from '../src/levels/compile.js';
 import { verifyLevel, holdRightWins } from '../src/levels/verify.js';
-
-const H = 10, F = 6; // level height, and the floor's top row (the runner stands in row 5)
 
 // ---------- a seeded random number generator, so runs are repeatable ----------
 function rng32(seed) {
@@ -126,66 +121,15 @@ function makeSegs(F, BOT) {
     { when: { ui: 'reload' }, do: 'kill', cause: 'trap', say: 'Did you just try to reload?' }] }),
   };
 }
-const SEG = makeSegs(F, H - 1);
-
-// Zones switch something on before the segments they wrap and off after them.
-const ZONE = {
-  mirror: { on: { do: 'mirror' }, off: { do: 'mirror' } },
-  rotate: { on: { do: 'rotate' }, off: { do: 'rotate' } },
-  swap: { on: { do: 'swap' }, off: { do: 'swap' } },
-  lag: { on: { do: 'lag', seconds: 0.2 }, off: { do: 'lag', seconds: 0 } },
-  dark: { on: { do: 'dark', radius: 3.4 }, off: { do: 'dark', radius: 0 } },
-  reverse: { on: { do: 'reverse' }, off: { do: 'reverse' } },
-  speed: { on: { do: 'speed', factor: 1.7 }, off: { do: 'speed', factor: 1 } },
-};
-// Flip is its own segment: a spike field you can only cross on the ceiling (the level gets a ceiling).
-function flipSeg(r) {
-  const L = r.int(6, 9), roof = L >= 7 && r.chance(0.6);
-  return { w: L + 2, ceiling: true,
-    draw: (m, x) => { m.fill(x + 1, F - 1, x + L, F - 1, '^'); if (roof) m.fill(x + 3, 1, x + 4, 1, 'V'); },
-    traps: x => [{ when: { x }, do: 'flip', ...say(r, 'flip') }, { when: { x: x + L + 1 }, do: 'flip' }] };
-}
-
 const say = (r, kind) => (r.chance(0.35) ? { say: r.pick(SAY[kind]) } : {});
 
 // ---------- chapters ----------
 // pool: segment kinds and how often they come up; zones: zone kinds that can wrap segments, and how likely; twists:
 // level-wide tricks and the chance a level gets one.
-const ALL = { gap: 2, spikes: 2, bump: 1, collapse: 2, popspikes: 2, cannon: 1, crusher: 1, stones: 1, crumble: 1, ferry: 1, pillar: 1, bonk: 1, fakedoor: 1, invisbridge: 1, invisspikes: 1, learns: 1, checkpoint: 1, crash: 1, flip: 1 };
 const CH = {
-  6: { pool: { gap: 3, collapse: 3, popspikes: 3, spikes: 2, bump: 2, cannon: 1 }, twists: { doorrun: 0.3 },
-    names: ['Seen it before', 'Same floor, new lies', 'Rerun', 'Familiar territory', 'Again, again', 'Muscle memory', 'Copy paste', 'Sequel', 'Remastered', 'Director’s cut'] },
-  7: { sig: { segs: ['crusher'], zones: ['dark'] }, pool: { crusher: 3, popspikes: 2, gap: 2, crumble: 1, spikes: 2 }, zones: { dark: 0.6 },
-    names: ['Graveyard shift', 'Night light', 'Lights off, crushers on', 'Overtime', 'Clocking in', 'Insomnia', '3 a.m.', 'Power cut', 'Blackout', 'Last shift'] },
-  8: { sig: { segs: ['flip'], zones: ['mirror', 'rotate'] }, pool: { flip: 2, gap: 2, spikes: 2, bump: 1, collapse: 2 }, zones: { mirror: 0.4, rotate: 0.35 },
-    names: ['Topsy', 'Turvy', 'Head over heels', 'Ceiling fan', 'Gravity’s day off', 'Looking glass', 'Handstand', 'Flip side', 'Down is up', 'Upside Downtown'] },
-  9: { sig: { segs: ['invisbridge', 'invisspikes', 'stones'] }, pool: { invisbridge: 3, invisspikes: 2, stones: 2, popspikes: 2, gap: 1 },
-    names: ['See-through', 'Clear as day', 'Window shopping', 'Thin ice', 'Ghost bridge', 'Now you see it', 'Faith-based', 'Invisible ink', 'Glass half empty', 'Hall of glass'] },
-  10: { sig: { zones: ['speed'], twists: ['chaser', 'auto'] }, pool: { gap: 3, spikes: 2, popspikes: 2, collapse: 2 }, zones: { speed: 0.4 }, twists: { chaser: 0.5, auto: 0.35 },
-    names: ['Late for work', 'Express lane', 'No brakes', 'Tailgater', 'Green light', 'Speed bump', 'Overtake', 'Fast lane', 'Road rage', 'Rush hour (again)'] },
-  11: { sig: { segs: ['crumble', 'stones', 'ferry'] }, pool: { crumble: 3, stones: 2, ferry: 2, collapse: 2, gap: 1 },
-    names: ['Lean back', 'Catch me', 'Leap year', 'Island hopping', 'The ferryman', 'Don’t look down', 'Brittle', 'Crumbs', 'Free fall', 'Trust fall'] },
-  12: { sig: { segs: ['crash'], zones: ['lag', 'swap'] }, pool: { spikes: 2, gap: 2, bump: 1, popspikes: 2, crash: 1 }, zones: { lag: 0.5, swap: 0.45 },
-    names: ['Buffering', 'Bad signal', 'Frame drop', 'Packet loss', 'Colour bleed', 'Reboot', 'Blue screen', 'Floor not found', 'Lag spike', 'Total static'] },
-  13: { pool: { popspikes: 3, gap: 2, bump: 1, spikes: 2, collapse: 2 }, zones: { dark: 0.4 }, twists: { ghost: 0.9 },
-    names: ['Boo', 'Echo', 'Footsteps', 'Shadow', 'Who’s there?', 'Haunted hallway', 'Poltergeist', 'Afterimage', 'Second you', 'The haunting'] },
-  14: { pool: { spikes: 2, gap: 2, collapse: 2, popspikes: 2 }, must: 'deadbridge',
-    names: ['Spare parts', 'Body double', 'Stand on me', 'Pile-up', 'Human bridge', 'Sacrifice', 'Stack of you', 'Grave mistake', 'RIP', 'Body count'] },
-  15: { sig: { segs: ['pillar', 'ferry', 'crusher'] }, pool: { pillar: 3, ferry: 3, crusher: 2, cannon: 1, gap: 1 },
-    names: ['Going down', 'Doors opening', 'Mind the doors', 'Basement level', 'Lift off', 'Ding', 'Out of order', 'Stuck between floors', 'Elevator pitch', 'Elevator music'] },
-  16: { sig: { segs: ['fakedoor', 'checkpoint', 'learns'], twists: ['fakewin', 'doorrun'] }, pool: { fakedoor: 3, checkpoint: 2, learns: 2, popspikes: 2, gap: 1, collapse: 1 }, twists: { fakewin: 0.35, doorrun: 0.35 },
-    names: ['That never happened', 'You’re imagining it', 'Totally a door', 'Saved. Probably.', 'Trust your memory', 'It was always like this', 'Didn’t move', 'Are you sure?', 'You did this', 'Gaslight'] },
-  17: { sig: { zones: ['reverse', 'mirror', 'lag'] }, pool: { spikes: 3, gap: 2, bump: 1, collapse: 2, popspikes: 1 }, zones: { reverse: 0.45, mirror: 0.35, lag: 0.3 },
-    names: ['Left right left', 'Wrong way', 'Brain lag', 'Backwards day', 'Mirror mind', 'Cross-wired', 'Reverse psychology', 'Mixed up', 'Short circuit', 'Brain freeze'] },
-  18: { sig: { segs: ['cannon'] }, pool: { cannon: 5, bump: 2, gap: 2, spikes: 1 },
-    names: ['Dodgeball', 'Bowling alley', 'Hailstorm', 'Pinball', 'Bouncy', 'Incoming!', 'Cannon fodder', 'Your court', 'Hot potato', 'Ball pit'] },
-  19: { pool: ALL, zones: { mirror: 0.15, swap: 0.15, dark: 0.15, lag: 0.15, reverse: 0.15 }, twists: { ghost: 0.15, chaser: 0.15, fakewin: 0.1 },
-    names: ['Pop quiz', 'Show your work', 'Multiple choice', 'Trick question', 'Open book', 'Cheat sheet', 'Extra credit', 'Retake', 'Detention', 'Final exam'] },
   // chapter 21, Lost & Found: every level is an explore level built around one key trick (see SHOWCASE)
   21: { pool: { spikes: 2, popspikes: 2, collapse: 2, bump: 1 },
     names: ['Keys, please', 'Run, key, run', 'Not that one', 'Down under', 'Lights out, keys in', 'Collector’s edition', 'Backtrack', 'Haunted house', 'Topsy-turvy house', 'Lost & Found'] },
-  20: { pool: ALL, zones: { mirror: 0.2, swap: 0.2, dark: 0.2, lag: 0.2, reverse: 0.2, rotate: 0.15 }, twists: { ghost: 0.2, chaser: 0.15, fakewin: 0.25, button: 0.25 },
-    names: ['Almost there', 'The penultimate', 'Credits roll?', 'Post-credits', 'One more', 'Last lap', 'Epilogue', 'The end (not)', 'Seriously, the end', 'The actual end'] },
 };
 
 const HINTS = [
@@ -199,106 +143,6 @@ const HINTS = [
 ];
 const BOSS_HINTS = ['Everything at once.', 'Last one in this chapter. Probably.', 'The big one.', 'Final boss energy.', 'You’ll love this one.'];
 
-// segments that need room above the floor, or the runner to stop and wait, don't mix with the chasing wall or auto-run
-const NO_CHASE = new Set(['bump', 'pillar', 'crusher', 'ferry', 'flip', 'bonk', 'cannon']);
-const NO_AUTO = new Set(['ferry', 'pillar', 'crusher', 'stones', 'crumble', 'invisbridge', 'learns', 'flip', 'bonk', 'cannon', 'deadbridge']);
-
-function weighted(r, pool, banned) {
-  const items = Object.entries(pool).filter(([k]) => !banned.has(k));
-  const total = items.reduce((n, [, w]) => n + w, 0);
-  let x = r.next() * total;
-  for (const [k, w] of items) { x -= w; if (x < 0) return k; }
-  return items[items.length - 1][0];
-}
-
-function buildLevel(n, i, seed, shrink = 0) {
-  const spec = CH[n], r = rng32(seed), a = allocators(), boss = i === 9;
-  // level-wide twist
-  const twists = Object.entries(spec.twists || {}).filter(([, p]) => r.chance(boss ? Math.min(1, p * 1.5) : p)).map(([k]) => k);
-  const twist = twists.length ? r.pick(twists) : null;
-  const banned = new Set(twist === 'chaser' ? NO_CHASE : twist === 'auto' ? NO_AUTO : []);
-  const count = Math.max(2, (boss ? 6 : 2 + Math.floor(i / 3) + (n >= 13 ? 1 : 0)) - shrink);
-
-  // pick the segments, and zones that wrap some of them
-  const kinds = [];
-  if (spec.must) kinds.push(spec.must);
-  while (kinds.length < count) {
-    const k = weighted(r, spec.pool, banned);
-    if (k === kinds[kinds.length - 1] && r.chance(0.7)) continue; // not the same thing twice in a row, mostly
-    if ((k === 'learns' || k === 'crash') && kinds.includes(k)) continue; // once per level
-    kinds.push(k);
-  }
-  if (spec.must) { const k = kinds.shift(); kinds.splice(r.int(0, kinds.length), 0, k); } // put it somewhere
-  const zonePicks = [];
-  for (const [z, p] of Object.entries(spec.zones || {})) {
-    if (twist === 'auto' && z === 'reverse') continue;
-    if (r.chance(boss ? Math.min(1, p * 1.4) : p)) zonePicks.push(z);
-  }
-  // every level shows off its chapter: if nothing so far is one of the chapter's signature tricks, add one
-  const sig = spec.sig;
-  if (sig && !kinds.some(k => sig.segs?.includes(k)) && !zonePicks.some(z => sig.zones?.includes(z)) && !sig.twists?.includes(twist)) {
-    const segOk = (sig.segs || []).filter(k => !banned.has(k));
-    if (sig.zones?.length && (!segOk.length || r.chance(0.5))) zonePicks.push(r.pick(sig.zones));
-    else if (segOk.length) kinds[r.int(0, kinds.length - 1)] = r.pick(segOk);
-  }
-  const segs = kinds.map(k => ({ kind: k, ...(k === 'flip' ? flipSeg(r) : SEG[k](r, a, n)) }));
-  const zones = [];
-  for (const z of zonePicks) {
-    for (let tries = 0; tries < 6; tries++) { // a free stretch of segments to wrap (zones don't overlap)
-      const from = r.int(0, segs.length - 1), to = Math.min(segs.length - 1, from + r.int(0, 1));
-      if (zones.some(q => !(to < q.from || from > q.to))) continue;
-      zones.push({ z, from, to });
-      break;
-    }
-  }
-
-  // lay it out: a run-up, then each segment with flat ground before it
-  let x = 5;
-  const placed = [];
-  segs.forEach((s, k) => {
-    const zoneStart = zones.find(q => q.from === k);
-    x += r.int(3, 4) + (zoneStart ? 2 : 0);
-    placed.push({ ...s, x });
-    x += s.w;
-    if (zones.find(q => q.to === k)) x += 2;
-  });
-  const button = twist === 'button';
-  const W = Math.max(32, x + (button ? 9 : 5));
-  const ceiling = segs.some(s => s.ceiling);
-  const m = new Map2(W);
-  m.fill(0, F, W - 1, H - 1, '#');
-  if (ceiling) m.fill(0, 0, W - 1, 0, '#');
-  for (const s of placed) s.draw(m, s.x);
-  const traps = [];
-  for (const s of placed) traps.push(...s.traps(s.x));
-  for (const q of zones) {
-    const z = ZONE[q.z], x0 = placed[q.from].x - 2, x1 = placed[q.to].x + placed[q.to].w + 1;
-    traps.push({ when: { x: x0 }, ...z.on, ...say(r, q.z) }, { when: { x: x1 }, ...z.off });
-  }
-  const def = { name: '', hint: '', map: '', traps };
-  const corpses = placed.flatMap(s => (s.corpses ? s.corpses(s.x) : []));
-  if (corpses.length) { def.corpses = true; def.check = { ...(def.check || {}), corpses }; }
-
-  m.put(1, F - 1, 'P');
-  m.put(W - 3, F - 1, 'D');
-  if (twist === 'doorrun') { const q = a.mark(); m.put(3, F - 1, q); traps.push({ when: { near: 2.5 }, do: 'door', to: q, ...say(r, 'door') }); }
-  if (twist === 'chaser') { const g = a.group(); m.fill(0, ceiling ? 1 : 0, 0, F - 1, g); traps.push({ when: { t: 0.8 }, do: 'move', g, by: [W - 7, 0], speed: r.int(36, 42) / 10, spikes: 'r', say: 'Run.' }); }
-  if (twist === 'auto') traps.push({ when: { t: 0.6 }, do: 'auto', dir: 1, say: 'Can’t stop.' });
-  if (twist === 'ghost') { def.ghost = 1.2; traps.push({ when: { t: 0.2, tries: [2] }, do: 'say', say: 'Is that… you?' }); }
-  if (twist === 'fakewin') def.fakeWin = 1;
-  if (button) {
-    const g = a.group();
-    m.fill(W - 6, 0, W - 5, F - 1, g);
-    traps.push({ when: { ui: 'button' }, do: 'vanish', g, say: 'You never listen. Good.' });
-    def.button = 'Don’t press';
-    def.check = { ...(def.check || {}), ui: ['button'] };
-  }
-  def.map = m.text();
-  def.about = [twist && `twist: ${twist}`, kinds.join(', '), zones.length && `zones: ${zones.map(q => q.z).join(', ')}`].filter(Boolean).join('; ');
-  return def;
-}
-
-
 // ---------- explore levels ----------
 // Two storeys: a tower to climb on the left, a corridor of traps to the right, and a basement you drop into through
 // one hole and climb out of through another. Keys are spread across the branches, and the door is locked until
@@ -308,17 +152,9 @@ const UP = makeSegs(U, U + 1), DOWN = makeSegs(LF, EH - 1);
 // (no cannons, looping crushers or ghosts: anything on a timer makes a long out-and-back route far too slow to prove)
 const FLAT = ['spikes', 'popspikes', 'collapse', 'bump', 'invisspikes', 'fakedoor', 'bonk'];
 
-// What each chapter adds to its explore levels.
-const EXTRA = {
-  6: ['surprise'], 7: ['dark'], 8: ['mirrorkeys'], 9: ['invisible'], 10: ['speed'], 11: ['crumbletower'],
-  12: ['lagkeys'], 13: ['dim', 'surprise'], 14: ['corpses', 'surprise'], 15: ['crumbletower', 'runaway'], 16: ['fakekey', 'doorrun'],
-  17: ['reversekeys'], 18: ['surprise', 'runaway'], 19: ['runaway', 'surprise', 'fakekey'], 20: ['runaway', 'fakekey', 'mirrorkeys', 'doorrun'],
-  21: [],
-};
-
 function buildExplore(n, i, seed, opts = {}) {
   const r = rng32(seed), a = allocators(), W = opts.w || r.int(50, 58);
-  const extras = opts.extras || [...(EXTRA[n] || [])].filter(() => r.chance(0.8));
+  const extras = opts.extras || [];
   const m = new Map2(W, EH);
   m.fill(0, U, W - 1, U + 1, '#');
   m.fill(0, LF, W - 1, EH - 1, '#');
@@ -419,7 +255,6 @@ function levelSource(def) {
   return lines.join('\n');
 }
 
-const EXPLORE = [2, 5, 8]; // levels 3, 6 and 9 of chapters 6-20; every level of chapter 21
 const SHOWCASE = [
   { keys: ['top', 'right'], door: 'start', extras: [] },
   { keys: ['right', 'base'], door: 'start', extras: ['runaway'] },
@@ -432,20 +267,12 @@ const SHOWCASE = [
   { keys: ['top', 'right', 'base'], door: 'basement', extras: ['mirrorkeys', 'reversekeys'] },
   { keys: ['top', 'right', 'base'], door: 'ledge', extras: ['runaway', 'fakekey', 'surprise'], w: 58 },
 ];
-export { buildExplore, buildLevel };
-const args = process.argv.slice(2), keepLinear = args.includes('--keep-linear');
-const only = process.env.RB_NO_GEN ? [-1] : args.filter(a => !a.startsWith('--')).map(Number);
-// a chapter file's level blocks, as text, so kept levels are written back exactly as they were (comments included)
-const blocksOf = src => src.slice(src.indexOf('export default [') + 'export default ['.length, src.lastIndexOf('];'))
-  .split(/\n(?=  \{\n    name:)/).map(b => b.replace(/^\n/, '').replace(/\n$/, '')).filter(b => b.trim());
+export { buildExplore };
 const t0 = performance.now();
-for (const n of Object.keys(CH).map(Number)) {
-  if (only.length && !only.includes(n)) continue;
+if (!process.env.RB_NO_GEN) for (const n of Object.keys(CH).map(Number)) {
   const spec = CH[n], r = rng32(n * 7919), hints = [...HINTS].sort(() => r.next() - 0.5);
   const out = [], file = `src/levels/ch${n}.js`;
-  const kept = keepLinear && existsSync(file) ? blocksOf(readFileSync(file, 'utf8')) : null;
   for (let i = 0; i < 10; i++) {
-    if (kept && n !== 21 && !EXPLORE.includes(i) && kept[i]) { out.push(kept[i]); continue; }
     let def = null, tries = 0, why = '';
     for (let shrink = 0; shrink <= 2 && !def; shrink++) {
       for (let k = 0; k < 25 && !def; k++) {
@@ -454,11 +281,11 @@ for (const n of Object.keys(CH).map(Number)) {
         const seed = n * 100003 + i * 1009 + k * 31 + shrink * 7;
         let L;
         try {
-          d = n === 21 ? buildExplore(n, i, seed, SHOWCASE[i]) : EXPLORE.includes(i) ? buildExplore(n, i, seed) : buildLevel(n, i, seed, shrink);
+          d = buildExplore(n, i, seed, SHOWCASE[i]);
           L = compile(d, `${n}-${i + 1}`);
         } catch (e) { why = e.message; continue; }
         if (holdRightWins(L, d)) { why = 'beatable by holding right'; continue; }
-        const v = verifyLevel(L, d, { maxNodes: n === 21 || EXPLORE.includes(i) ? 200000 : 60000 });
+        const v = verifyLevel(L, d, { maxNodes: 200000 });
         if (!v.ok) { why = v.reason; continue; }
         def = d;
       }
@@ -469,7 +296,7 @@ for (const n of Object.keys(CH).map(Number)) {
     out.push(levelSource(def));
     process.stdout.write(`${n}-${i + 1} ${def.name} (${tries} ${tries === 1 ? 'try' : 'tries'}): ${def.about}\n`);
   }
-  const src = `// Chapter ${n}: generated by scripts/generate-levels.mjs (remixing the traps from chapters 1-5). Edit freely, then\n`
+  const src = `// Chapter ${n}: generated by scripts/generate-levels.mjs (explore levels built around keys). Edit freely, then\n`
     + `// run \`npm run check\`; re-running the generator overwrites this file.\nexport default [\n${out.join('\n')}\n];\n`;
   writeFileSync(file, src);
 }

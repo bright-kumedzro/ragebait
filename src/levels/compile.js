@@ -2,7 +2,7 @@
 // level" for the map characters and trap options. Kept apart from index.js so the level generator can use it
 // without loading the chapter files it writes.
 import { PLAYER_W, PLAYER_H, BALL_R } from '../config.js';
-import { SOLID, SPIKE_U, SPIKE_D, SPIKE_L, SPIKE_R, BONK } from '../sim.js';
+import { SOLID, SPIKE_U, SPIKE_D, SPIKE_L, SPIKE_R, BONK, SPRING } from '../sim.js';
 
 const SPIKES = { '^': SPIKE_U, V: SPIKE_D, '<': SPIKE_L, '>': SPIKE_R };
 const DOOR_W = 0.8, DOOR_H = 1.4;
@@ -13,7 +13,7 @@ export function compile(def, id = '?') {
   const rows = def.map.split('\n').map(r => r.trim()).filter(r => r.length);
   const h = rows.length, w = Math.max(...rows.map(r => r.length));
   const grid = new Uint8Array(w * h), cellGroup = new Array(w * h).fill('');
-  const groups = {}, marks = {}, fakeDoors = [], flags = [], keys = [], fakeKeys = [];
+  const groups = {}, marks = {}, fakeDoors = [], flags = [], keys = [], fakeKeys = [], coins = [], levers = [];
   let start = null, door = null;
   const group = ch => (groups[ch] ||= { solid: [], hidden: [] });
 
@@ -28,6 +28,9 @@ export function compile(def, id = '?') {
       else if (c === 'F') { const [x, y] = doorAt(cx, cy); fakeDoors.push({ x, y }); }
       else if (c === '*') keys.push({ x: cx + 0.5, y: cy + 0.55 });
       else if (c === '&') fakeKeys.push({ x: cx + 0.5, y: cy + 0.55 });
+      else if (c === '=') grid[i] = SPRING;
+      else if (c === '$') coins.push({ x: cx + 0.5, y: cy + 0.5 });
+      else if (c === '/') levers.push({ x: cx, y: cy });
       else if (c === 'K') { flags.push({ x: cx, y: cy, mark: true }); marks.K ||= [cx, cy]; }
       else if (c >= 'a' && c <= 'z') { grid[i] = SOLID; group(c).solid.push([cx, cy]); cellGroup[i] = c; }
       else if (c >= '1' && c <= '9') { group(c).hidden.push([cx, cy]); cellGroup[i] = c; }
@@ -65,6 +68,20 @@ export function compile(def, id = '?') {
       const [cx, cy] = mark(tr.to, `trap ${n} to`); tr.to = [cx + 0.5, cy + 0.55];
       if (!(tr.k >= 0 && tr.k < keys.length)) fail(`trap ${n} moves key ${tr.k}, but the map has ${keys.length}`);
     }
+    const centre = (v, what) => { const [cx, cy] = mark(v, what); return typeof v === 'string' ? [cx + 0.5, cy + 0.5] : [cx, cy]; };
+    // off: [dx, dy] shifts a saw or bomb from its marks (a mark's own tile is air, so to have a saw sit in the
+    // floor, put the mark in the row above and shift it down)
+    const [ox, oy] = t.off || [0, 0], shift = ([x, y]) => [x + ox, y + oy];
+    if (tr.do === 'saw') {
+      tr.from = shift(centre(t.from, `trap ${n} from`));
+      if (t.path) tr.path = t.path.map((q, k) => shift(centre(q, `trap ${n} path ${k}`)));
+      if (t.back && tr.path) tr.path = [...tr.path, tr.from];
+    }
+    if (tr.do === 'bomb') tr.at = shift(centre(t.at, `trap ${n} at`));
+    if (tr.do === 'warp') { const [cx, cy] = mark(t.to, `trap ${n} to`); tr.to = typeof t.to === 'string' ? [cx + 0.5, cy + 1] : [cx, cy]; }
+    if (tr.do === 'lava') tr.to = typeof t.to === 'string' ? mark(t.to, `trap ${n} to`)[1] : t.to; // the surface: the top of that row
+    if (wh.lever !== undefined && !(wh.lever >= 0 && wh.lever < levers.length)) fail(`trap ${n} waits for lever ${wh.lever}, but the map has ${levers.length}`);
+    if (tr.do === 'belt' && !groups[tr.g]) fail(`trap ${n} belts group ${tr.g}, which isn't on the map`);
     if (tr.do === 'balls') {
       const f = mark(tr.from, `trap ${n} from`);
       tr.from = typeof t.from === 'string' ? [f[0] + 0.5, f[1] + 1 - (tr.r || BALL_R)] : f;
@@ -73,8 +90,12 @@ export function compile(def, id = '?') {
     return tr;
   });
 
+  const portals = (def.portals || []).map(([a, b], k) => [mark(a, `portal ${k}`), mark(b, `portal ${k}`)]);
+  const signs = (def.signs || []).map(([m, text], k) => { const [x, y] = mark(m, `sign ${k}`); return { x, y, text }; });
+  const lava = def.lava === undefined ? undefined : typeof def.lava === 'string' ? mark(def.lava, 'lava')[1] : def.lava;
+
   // groups drawn as empty air until something reveals them (they're solid all along)
   const invisible = traps.filter(t => t.do === 'reveal').map(t => t.g).join('');
 
-  return { id, name: def.name, invisible, flags, keys, fakeKeys, fakeWin: def.fakeWin || 0, corpses: !!def.corpses, ghost: def.ghost || 0, button: def.button || '', noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
+  return { id, name: def.name, invisible, flags, keys, fakeKeys, coins, levers, portals, signs, lava, wrap: !!def.wrap, fakeWin: def.fakeWin || 0, corpses: !!def.corpses, ghost: def.ghost || 0, button: def.button || '', noPause: (def.traps || []).some(t => t.when?.ui === 'pause'), hint: def.hint || '', w, h, grid, cellGroup, groups, marks, start, door, fakeDoors, traps, fakeSkip: !!def.fakeSkip, DOOR_W, DOOR_H };
 }

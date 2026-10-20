@@ -62,7 +62,7 @@ export default [
   {
     name: 'Rise and shine',
     hint: 'Straight ahead.',
-    // a pillar shoots up out of the floor and leaves a hole; ride it, or wait for it to sink
+    // a pillar rises out of the floor into a wall too tall to jump, leaving a hole; hop on while it's still low and ride it
     map: `
       ................................
       ................................
@@ -77,7 +77,7 @@ export default [
       ######################aa########
       ######################aa########`,
     traps: [
-      { when: { x: 19 }, do: 'move', g: 'a', by: [0, -4], speed: 3, back: true, hold: 2 },
+      { when: { x: 19 }, do: 'move', g: 'a', by: [0, -4], speed: 3 },
     ],
   },
   {

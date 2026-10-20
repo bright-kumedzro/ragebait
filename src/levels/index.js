@@ -1,4 +1,4 @@
-// The level list: hand-made chapters 1-5 and generated chapters 6-21 (see scripts/generate-levels.mjs).
+// The level list: hand-made chapters 1-20 and the generated chapter 21 (see scripts/generate-levels.mjs).
 import { compile } from './compile.js';
 import ch1 from './ch1.js';
 import ch2 from './ch2.js';
@@ -29,8 +29,9 @@ export const levelIndex = id => LEVELS.findIndex(l => l.id === id);
 // A fingerprint of a level's layout and traps. Challenges store it, so a challenge made before a level was
 // changed is flagged instead of comparing deaths on two different levels.
 export function levelHash(idx) {
-  const { map, traps, fakeSkip } = LEVELS[idx].def;
-  const src = map.replace(/\s+/g, '\n') + JSON.stringify(traps || []) + (fakeSkip ? '!' : '');
+  const { map, traps, fakeSkip, portals, lava, wrap } = LEVELS[idx].def;
+  const extra = portals || lava !== undefined || wrap ? JSON.stringify([portals, lava, wrap]) : '';
+  const src = map.replace(/\s+/g, '\n') + JSON.stringify(traps || []) + (fakeSkip ? '!' : '') + extra;
   let h = 0x811c9dc5;
   for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return h.toString(16).padStart(8, '0');

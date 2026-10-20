@@ -70,6 +70,12 @@ export const sound = {
   lol: () => [0, 0.09, 0.18].forEach((d, i) => tone(440 - i * 40, 0.08, { type: 'square', vol: 0.06, delay: d })),
   check: () => [784, 1047, 1319].forEach((f, i) => tone(f, 0.14, { type: 'triangle', vol: 0.09, delay: i * 0.07 })),
   error: () => { tone(110, 0.35, { type: 'sawtooth', vol: 0.12 }); tone(116, 0.35, { type: 'square', vol: 0.06 }); },
+  spring: () => tone(180, 0.25, { type: 'sine', slide: 720, vol: 0.14 }),
+  coin: () => { tone(988, 0.06, { type: 'square', vol: 0.06 }); tone(1319, 0.14, { type: 'square', vol: 0.06, delay: 0.06 }); },
+  lever: () => { tone(240, 0.05, { type: 'square', vol: 0.08 }); noise(0.05, { vol: 0.1, freq: 2000, delay: 0.04 }); },
+  warp: () => tone(200, 0.3, { type: 'triangle', slide: 1600, vol: 0.1 }),
+  boom: () => { noise(0.7, { vol: 0.5, freq: 260 }); tone(70, 0.5, { type: 'sine', slide: 30, vol: 0.3 }); },
+  saw: () => noise(0.4, { vol: 0.12, freq: 3200, type: 'bandpass', q: 4 }),
 };
 
 // ---------- music: a small chiptune loop per chapter ----------

@@ -1,7 +1,7 @@
 // Draws the sim state on a 2D canvas: flat two-colour levels in the chapter's palette, a tiny runner, and the
 // particles and screen shake that sell every death. Nothing here changes the sim.
 import { PLAYER_W, PLAYER_H } from './config.js';
-import { SOLID, SPIKE_U, SPIKE_D, SPIKE_R, isSpike } from './sim.js';
+import { SOLID, SPIKE_U, SPIKE_D, SPIKE_R, SPRING, isSpike, springBase } from './sim.js';
 import { pose, drawFigure } from './figure.js';
 
 const MAX_DPR = 2;
@@ -20,6 +20,7 @@ export function createRenderer(canvas) {
   let rotK = 0;                         // 0 upright → 1 upside down, eased the same way
   let now = 0, doorLaugh = 0, mood = null; // the door cackles until doorLaugh; mood: { kind, until } for the runner
   let haT = 0;
+  const springT = new Map();           // when each spring last fired, for its bounce
   let insets = { top: 0, bottom: 0 };   // CSS px the HUD and touch controls cover
 
   function resize() {
@@ -42,7 +43,7 @@ export function createRenderer(canvas) {
     let x, y;
     if (L.w <= viewW) x = (L.w - viewW) / 2;
     else {
-      const px = s ? s.p.x + PLAYER_W / 2 : L.start.x;
+      const px = s ? s.p.x + s.pw / 2 : L.start.x;
       x = Math.max(0, Math.min(L.w - viewW, px - viewW / 2));
     }
     // levels sit low on the screen (the sky above is free); taller ones follow the runner
@@ -201,22 +202,23 @@ export function createRenderer(canvas) {
   function drawPlayer(s, t) {
     const p = s.p, g = s.grav;
     // standing still while a reaction is on: the posed figure instead of the running one
+    const pw = s.pw || PLAYER_W, ph = s.ph || PLAYER_H, k = ph / PLAYER_H; // k: the 'size' trap
     if (mood && t < mood.until && p.ground && Math.abs(p.vx) < 0.4) {
       ctx.save();
-      ctx.translate(X(p.x + PLAYER_W / 2), Y(g > 0 ? p.y + PLAYER_H : p.y));
-      ctx.scale(scale * lastFace, scale * g);
+      ctx.translate(X(p.x + pw / 2), Y(g > 0 ? p.y + ph : p.y));
+      ctx.scale(scale * k * lastFace, scale * k * g);
       drawFigure(ctx, pose(mood.kind, t), theme.ink, theme.air);
       ctx.restore();
       return;
     }
     const face = p.vx > 0.3 ? 1 : p.vx < -0.3 ? -1 : lastFace;
     lastFace = face;
-    const fx = p.x + PLAYER_W / 2, fy = g > 0 ? p.y + PLAYER_H : p.y;
+    const fx = p.x + pw / 2, fy = g > 0 ? p.y + ph : p.y;
     const sq = squash; // >0 squashed (landing), <0 stretched (jumping)
     const sx = 1 + sq * 0.35, sy = 1 - sq * 0.35;
     ctx.save();
     ctx.translate(X(fx), Y(fy));
-    ctx.scale(scale * sx * face, scale * sy * g);
+    ctx.scale(scale * k * sx * face, scale * k * sy * g);
     ctx.fillStyle = theme.ink; ctx.strokeStyle = theme.ink; ctx.lineCap = 'round';
     const run = p.run * 2.6, air = !p.ground;
     // legs
@@ -247,6 +249,112 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
+  // a buzzsaw: a toothed disc, spinning
+  function drawSaw(w, t) {
+    const n = 12, r = w.r, a0 = t * 14;
+    ctx.fillStyle = theme.solid;
+    ctx.beginPath();
+    for (let i = 0; i < n * 2; i++) {
+      const a = a0 + (i / (n * 2)) * Math.PI * 2, rr = i % 2 ? r : r * 0.8;
+      const x = X(w.x + Math.cos(a) * rr), y = Y(w.y + Math.sin(a) * rr);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = theme.air;
+    ctx.beginPath(); ctx.arc(X(w.x), Y(w.y), r * 0.22 * scale, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = theme.air; ctx.lineWidth = Math.max(1, scale * 0.05);
+    ctx.beginPath(); ctx.arc(X(w.x), Y(w.y), r * 0.5 * scale, a0, a0 + 1.4); ctx.stroke();
+  }
+
+  // a bounce pad: a plate on a coil, squashed for a moment after it throws you
+  function drawSpring(cx, cy, b, t) {
+    const since = t - (springT.get(cy * L.w + cx) ?? -9), squash = since < 0.18 ? 0.35 + since * 2 : 1;
+    const base = b > 0 ? cy + 1 : cy, dir = -b, h = 0.42 * squash; // dir: which way is "up" from the base
+    const yAt = d => Y(base + dir * d);
+    ctx.fillStyle = theme.solid;
+    ctx.fillRect(X(cx + 0.12), Math.min(yAt(0), yAt(0.08)), X(cx + 0.88) - X(cx + 0.12), Math.abs(yAt(0.08) - yAt(0)));
+    ctx.strokeStyle = theme.solid; ctx.lineWidth = Math.max(1.5, scale * 0.07); ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= 4; i++) ctx.lineTo(X(cx + (i % 2 ? 0.7 : 0.3)), yAt(0.08 + (h - 0.08) * (i / 4)));
+    ctx.stroke();
+    ctx.fillStyle = theme.door;
+    ctx.fillRect(X(cx + 0.06), Math.min(yAt(h), yAt(h + 0.12)), X(cx + 0.94) - X(cx + 0.06), Math.abs(yAt(h + 0.12) - yAt(h)));
+  }
+
+  function drawCoin(x, y, t) {
+    const w = Math.abs(Math.cos(t * 3 + x)) * 0.22 + 0.03, b = Math.sin(t * 4 + x) * 0.05;
+    ctx.fillStyle = theme.door; ctx.strokeStyle = theme.ink; ctx.lineWidth = Math.max(1, scale * 0.05);
+    ctx.beginPath(); ctx.ellipse(X(x), Y(y + b), w * scale, 0.25 * scale, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  function drawLever(v, on) {
+    const bx = v.x + 0.5, by = v.y + 1, a = on ? 0.65 : -0.65;
+    ctx.strokeStyle = theme.ink; ctx.lineWidth = Math.max(1.5, scale * 0.08); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(X(bx), Y(by - 0.15)); ctx.lineTo(X(bx + Math.sin(a) * 0.6), Y(by - 0.15 - Math.cos(a) * 0.6)); ctx.stroke();
+    ctx.fillStyle = theme.door;
+    ctx.beginPath(); ctx.arc(X(bx + Math.sin(a) * 0.6), Y(by - 0.15 - Math.cos(a) * 0.6), scale * 0.12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = theme.solid;
+    ctx.fillRect(X(v.x + 0.2), Y(by - 0.22), X(v.x + 0.8) - X(v.x + 0.2), Y(by) - Y(by - 0.22));
+  }
+
+  // both ends of a pair share a colour (door, then ink, then solid), so you can tell which goes where
+  function drawPortal(cx, cy, t, pair, end) {
+    const x = X(cx + 0.5), y = Y(cy + 0.2), k = pair * 2 + end;
+    ctx.lineWidth = Math.max(2, scale * 0.12); ctx.strokeStyle = [theme.door, theme.ink, theme.solid][pair % 3];
+    ctx.beginPath(); ctx.ellipse(x, y, scale * 0.38, scale * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = pair % 3 === 1 ? theme.door : theme.ink; ctx.lineWidth = Math.max(1, scale * 0.05);
+    for (let i = 0; i < 3; i++) { // swirling dots
+      const a = t * (k % 2 ? -3 : 3) + i * 2.1;
+      ctx.beginPath(); ctx.arc(x + Math.cos(a) * scale * 0.2, y + Math.sin(a) * scale * 0.5, Math.max(1, scale * 0.05), 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  function drawBomb(b, t) {
+    const pulse = 1 + Math.max(0, 0.6 - b.t) * Math.abs(Math.sin(t * 30)) * 0.4, r = 0.32 * pulse;
+    ctx.fillStyle = theme.ink;
+    ctx.beginPath(); ctx.arc(X(b.x), Y(b.y + 0.18), r * scale, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = theme.ink; ctx.lineWidth = Math.max(1, scale * 0.05);
+    ctx.beginPath(); ctx.moveTo(X(b.x + 0.15), Y(b.y - 0.08)); ctx.quadraticCurveTo(X(b.x + 0.3), Y(b.y - 0.35), X(b.x + 0.42), Y(b.y - 0.3)); ctx.stroke();
+    ctx.fillStyle = theme.door;
+    ctx.beginPath(); ctx.arc(X(b.x + 0.42), Y(b.y - 0.3), scale * (0.07 + Math.random() * 0.05), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = theme.ink; ctx.textAlign = 'center';
+    ctx.font = `${Math.round(scale * 0.5)}px Bungee, Impact, sans-serif`;
+    ctx.fillText(Math.ceil(b.t), X(b.x), Y(b.y - 0.55));
+  }
+
+  function drawSign(x, y, text) {
+    const fs = Math.max(8, Math.round(scale * 0.3));
+    ctx.font = `${fs}px Bungee, Impact, sans-serif`;
+    const tw = ctx.measureText(text).width + fs * 0.9, bx = X(x + 0.5) - tw / 2, by = Y(y + 0.05), bh = fs * 1.5;
+    ctx.fillStyle = theme.solid;
+    ctx.fillRect(X(x + 0.45), by + bh, Math.max(2, X(x + 0.55) - X(x + 0.45)), Y(y + 1) - by - bh);
+    ctx.fillStyle = theme.door; ctx.strokeStyle = theme.solid; ctx.lineWidth = Math.max(1, scale * 0.05);
+    ctx.beginPath(); ctx.roundRect(bx, by, tw, bh, fs * 0.2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = theme.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, X(x + 0.5), by + bh / 2 + fs * 0.05);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // the lava: the hazard colour, with a glowing, rolling surface and bubbles
+  function drawLava(s, t) {
+    const top = s.lava, sx0 = camX - 1, sx1 = camX + cw / scale + 1;
+    ctx.fillStyle = theme.solid;
+    ctx.beginPath(); ctx.moveTo(X(sx0), Y(L.h + 20));
+    for (let x = sx0; x <= sx1; x += 0.25) ctx.lineTo(X(x), Y(top + Math.sin(x * 1.7 + t * 3) * 0.08));
+    ctx.lineTo(X(sx1), Y(L.h + 20)); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = theme.door; ctx.lineWidth = Math.max(2, scale * 0.1);
+    ctx.beginPath();
+    for (let x = sx0; x <= sx1; x += 0.25) ctx.lineTo(X(x), Y(top + Math.sin(x * 1.7 + t * 3) * 0.08));
+    ctx.stroke();
+    ctx.fillStyle = theme.door;
+    for (let i = 0; i < 6; i++) {
+      const bx = Math.floor(camX) + ((i * 7.3 + Math.floor(t * 0.7 + i) * 3.1) % (cw / scale)), ph = (t * 0.7 + i * 0.37) % 1;
+      ctx.globalAlpha = 1 - ph;
+      ctx.beginPath(); ctx.arc(X(bx), Y(top + 0.5 - ph * 0.7), scale * 0.08, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function burst(x, y, n, color, speed = 8, life = 0.7, size = 0.12) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
@@ -272,6 +380,15 @@ export function createRenderer(canvas) {
       case 'doorstop': burst(ev.x, ev.y, 5, theme.solid, 3, 0.35, 0.1); break;
       case 'key': burst(ev.x, ev.y, 18, theme.door, 7, 0.7, 0.12); break;
       case 'locked': shake = Math.max(shake, 0.1); doorLaugh = now + 1.2; break;
+      case 'spring': springT.set(ev.cy * L.w + ev.cx, now); squash = -0.6; burst(ev.x, ev.y, 6, theme.door, 4, 0.35, 0.1); break;
+      case 'coin': burst(ev.x, ev.y, 10, theme.door, 5, 0.5, 0.1); break;
+      case 'lever': burst(ev.x, ev.y, 8, theme.door, 4, 0.4, 0.1); break;
+      case 'warp': burst(ev.x, ev.y, 14, theme.door, 6, 0.5, 0.12); burst(ev.tx, ev.ty, 14, theme.door, 6, 0.5, 0.12); break;
+      case 'wrap': burst(ev.x, ev.y + 0.2, 8, theme.solid, 4, 0.4, 0.1); break;
+      case 'boom':
+        shake = Math.max(shake, 0.7); flash = Math.max(flash, 0.8);
+        burst(ev.x, ev.y, 40, theme.solid, 14, 0.9, 0.2); burst(ev.x, ev.y, 24, theme.door, 10, 0.7, 0.16);
+        break;
       case 'win': burst(ev.x, ev.y, 30, theme.door, 9, 1, 0.14); burst(ev.x, ev.y, 14, theme.ink, 7, 0.8, 0.1); break;
       case 'trap':
         if (ev.kind === 'fall') shake = Math.max(shake, 0.15);
@@ -314,6 +431,7 @@ export function createRenderer(canvas) {
     // static tiles, merged into runs per row
     const x0 = Math.floor(camX) - 1, x1 = Math.ceil(camX + cw / scale) + 1;
     const y0 = Math.floor(camY) - 1, y1 = Math.ceil(camY + ch / scale) + 1;
+    for (const w of s.saws) drawSaw(w, t); // behind the tiles, so one rising out of the floor is half hidden
     ctx.fillStyle = theme.solid;
     for (let cy = y0; cy <= y1; cy++) {
       let run = null;
@@ -327,9 +445,36 @@ export function createRenderer(canvas) {
       for (let cx = Math.max(0, x0); cx <= Math.min(L.w - 1, x1); cx++) {
         const c = s.grid[cy * L.w + cx];
         if (isSpike(c)) spikeShape(cx, cy, c);
+        else if (c === SPRING) { drawSpring(cx, cy, springBase(L, s.grid, cx, cy), t); ctx.fillStyle = theme.solid; }
       }
     }
+    // conveyor belts: chevrons running along the top of the group
+    for (const [g, v] of s.belts) {
+      if (!v) continue;
+      const m = s.movers.find(q => q.g === g && !q.gone), off = ((now * v) % 1 + 1) % 1;
+      ctx.fillStyle = theme.air; ctx.globalAlpha = 0.55;
+      for (const [cx, cy] of L.groups[g].solid) {
+        if (!m && s.grid[cy * L.w + cx] !== SOLID) continue;
+        const gx = cx + (m ? m.ox : 0), gy = cy + (m ? m.oy : 0);
+        for (const k of [0, 0.5]) {
+          const x = gx + ((k + off) % 1), d = Math.sign(v) * 0.12;
+          ctx.beginPath(); ctx.moveTo(X(x - d), Y(gy + 0.08)); ctx.lineTo(X(x + d), Y(gy + 0.18)); ctx.lineTo(X(x - d), Y(gy + 0.28)); ctx.closePath(); ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = theme.solid;
+    }
     for (const k of s.spikes) if (!k.inv) spikeShape(k.x, k.y, k.dir, k.k);
+    if (s.ice) { // a pale glaze along the top of every floor
+      ctx.fillStyle = theme.air; ctx.globalAlpha = 0.45;
+      for (let cy = Math.max(1, y0); cy <= Math.min(L.h - 1, y1); cy++) {
+        for (let cx = Math.max(0, x0); cx <= Math.min(L.w - 1, x1); cx++) {
+          if (s.grid[cy * L.w + cx] !== SOLID || s.grid[(cy - 1) * L.w + cx] === SOLID) continue;
+          ctx.fillRect(X(cx), Y(cy + 0.06), X(cx + 1) - X(cx), Math.max(1, Y(cy + 0.14) - Y(cy + 0.06)));
+          if ((cx * 7 + cy) % 3 === 0) ctx.fillRect(X(cx + 0.3), Y(cy + 0.22), X(cx + 0.55) - X(cx + 0.3), Math.max(1, Y(cy + 0.27) - Y(cy + 0.22)));
+        }
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = theme.solid;
+    }
 
     // moving blocks (and their spikes)
     for (const m of s.movers) {
@@ -350,8 +495,18 @@ export function createRenderer(canvas) {
 
     flagWave = Math.max(0, flagWave - dt * 0.8);
     for (const f of L.flags) drawFlag(f.x, f.y, t);
+    // signs and levers ride along on the floor under them when it moves or falls (and go with it)
+    const carried = (x, y) => {
+      const g = y + 1 < L.h ? L.cellGroup[(y + 1) * L.w + x] : '', m = g && s.movers.find(q => q.g === g);
+      return !m ? [0, 0] : m.gone ? null : [m.ox, m.oy];
+    };
+    L.signs.forEach((g, i) => { const o = carried(g.x, g.y); if (o) drawSign(g.x + o[0], g.y + o[1], s.signs[i] ?? g.text); });
+    L.portals.forEach(([a, b], k) => { drawPortal(a[0], a[1], t, k, 0); drawPortal(b[0], b[1], t, k, 1); });
+    L.levers.forEach((v, i) => { const o = carried(v.x, v.y); if (o) drawLever({ x: v.x + o[0], y: v.y + o[1] }, s.levers[i]); });
+    L.coins.forEach((c, i) => { if (!s.coins[i]) drawCoin(c.x, c.y, t); });
+    for (const b of s.bombs) drawBomb(b, t);
     // a fake door grins once you're close enough that it's too late
-    const pcx = s.p.x + PLAYER_W / 2, pcy = s.p.y + PLAYER_H / 2;
+    const pcx = s.p.x + s.pw / 2, pcy = s.p.y + s.ph / 2;
     for (const f of L.fakeDoors) drawDoor(f.x, f.y, false, t, s.cause === 'bite' ? 1 : 0, Math.hypot(f.x + 0.4 - pcx, f.y + 0.7 - pcy) < 1.3 ? 'grin' : '');
     const d = s.door, running = d.x !== d.tx || d.y !== d.ty;
     drawDoor(d.x, d.y, running, t, 0, running || t < doorLaugh ? 'laugh' : '');
@@ -377,6 +532,7 @@ export function createRenderer(canvas) {
     for (const [cx, cy] of s.corpses) drawCorpse(cx, cy);
     if (s.gpos) drawGhost(s, t);
     if (s.status !== 'dead' && !opts.hidePlayer) drawPlayer(s, t);
+    if (s.lava < L.h + 1.5) drawLava(s, t);
 
     // particles
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -391,8 +547,20 @@ export function createRenderer(canvas) {
       else ctx.fillRect(X(q.x) - sz / 2, Y(q.y) - sz / 2, sz, sz);
     }
     ctx.globalAlpha = 1;
+    if (s.wind) { // streaks blowing across the view, faster and denser the stronger the wind
+      const n = Math.min(40, 10 + Math.abs(s.wind) * 4), vw = cw / scale, vh = ch / scale, len = 0.6 + Math.abs(s.wind) * 0.12;
+      ctx.strokeStyle = theme.ink; ctx.globalAlpha = 0.3; ctx.lineWidth = Math.max(1.5, scale * 0.05);
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const sp = 6 + Math.abs(s.wind) * 3 + (i % 5);
+        const fx = ((i * 0.618 * vw + now * sp) % (vw + 4)) - 2, wx = s.wind > 0 ? camX + fx : camX + vw - fx;
+        const wy = camY + ((i * 0.377 * vh + Math.sin(now * 2 + i) * 0.3) % vh);
+        ctx.moveTo(X(wx), Y(wy)); ctx.lineTo(X(wx - Math.sign(s.wind) * len), Y(wy));
+      }
+      ctx.stroke(); ctx.globalAlpha = 1;
+    }
     if (s.dark) { // lights out: only a circle around the runner
-      const cx = X(s.p.x + PLAYER_W / 2), cy = Y(s.p.y + PLAYER_H / 2), r = s.dark * scale;
+      const cx = X(s.p.x + s.pw / 2), cy = Y(s.p.y + s.ph / 2), r = s.dark * scale;
       const g = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
       g.addColorStop(0, 'rgba(4,4,10,0)'); g.addColorStop(1, 'rgba(4,4,10,0.97)');
       ctx.fillStyle = g;
@@ -400,6 +568,12 @@ export function createRenderer(canvas) {
     }
     ctx.restore();
 
+    if (s.clock) {
+      const left = Math.max(0, s.clock - s.t), fs = Math.round(Math.min(cw, ch) * 0.09);
+      ctx.font = `${fs}px Bungee, Impact, sans-serif`; ctx.textAlign = 'center';
+      ctx.fillStyle = left < 3 && Math.floor(left * 4) % 2 ? theme.solid : theme.ui || theme.ink;
+      ctx.fillText(left.toFixed(1), cw / 2, insets.top * dpr + fs * 1.1);
+    }
     if (flash > 0) { ctx.fillStyle = theme.solid; ctx.globalAlpha = flash * 0.18; ctx.fillRect(0, 0, cw, ch); ctx.globalAlpha = 1; }
     camX -= shx; camY -= shy;
   }
