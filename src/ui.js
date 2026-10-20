@@ -22,6 +22,9 @@ const ICONS = {
   music: '<path d="M9 17.5V6l11-2.5v11.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="6.5" cy="17.5" r="2.8"/><circle cx="17.5" cy="15" r="2.8"/>',
   versus: '<path d="M3 5h3.2l2.3 8.6L10.8 5H14l-4 14H7zM20.6 8.2c-.5-.9-1.4-1.4-2.5-1.4-1.3 0-2.2.7-2.2 1.6 0 2.4 5.6 1.4 5.6 6 0 2.3-1.9 3.9-4.4 3.9-1.9 0-3.4-.9-4.1-2.4l2.1-1.2c.4.8 1.1 1.3 2 1.3 1 0 1.7-.6 1.7-1.4 0-2.5-5.6-1.4-5.6-6 0-2.1 1.8-3.7 4.4-3.7 1.7 0 3.1.8 3.9 2.1z"/>',
   key: '<circle cx="7.5" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 10.8h10v2.6h-2.2V17h-2.6v-3.6h-1.8V16h-2.6v-2.6H12z"/>',
+  help: '<path d="M9.2 9a2.9 2.9 0 0 1 5.6 1c0 2-2.8 2.4-2.8 4.4" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><circle cx="12" cy="18.6" r="1.7"/>',
+  door: '<path d="M6 3h12v18H6z" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="14.8" cy="12.5" r="1.5"/>',
+  eye: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="3.2"/>',
   chevron: '<path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 export const icon = name => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ICONS[name] || ''}</svg>`;

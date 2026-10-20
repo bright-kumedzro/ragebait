@@ -55,6 +55,7 @@
     <p class="tagline">Every level lies. Trust nothing.</p>
     <button class="btn big" id="btnPlay"><span id="playLabel">Play</span><small id="playSub">Level 1-1</small></button>
     <div class="row-btns">
+      <button class="btn ghost" id="btnHowTo" data-icon="help"><span>How to play</span></button>
       <button class="btn ghost" id="btnLevels" data-icon="grid"><span>Levels</span></button>
       <button class="btn ghost versus" id="btnCompete" data-icon="versus" hidden><span>Ragebait a friend</span><b class="badge" id="competeBadge" hidden></b></button>
       <button class="btn ghost" id="btnSettings" data-icon="gear"><span>Settings</span></button>
@@ -103,6 +104,31 @@
     <p class="fine">Made by <a href="https://www.linkedin.com/in/bright-kumedzro-46345420b" target="_blank" rel="noopener">Bright Kumedzro</a></p>
   </div>
 </section>
+
+<div class="modal" id="mdlHelp" hidden>
+  <div class="card howto" role="dialog" aria-labelledby="helpTitle">
+    <h3 id="helpTitle">How to play</h3>
+    <p class="card-sub">Get to the door. That’s it. That’s the game.</p>
+    <ol class="rules">
+      <li><i data-icon="door" aria-hidden="true"></i><span><b>Reach the door.</b> Touch it and the level is done.</span></li>
+      <li><i data-icon="skull" aria-hidden="true"></i><span><b>One touch kills.</b> Spikes, saws, lava, falling off. You’re back instantly.</span></li>
+      <li><i data-icon="eye" aria-hidden="true"></i><span><b>Everything lies.</b> Floors fall, doors run, signs fib. But every trap is the same next time, so each death teaches you something.</span></li>
+    </ol>
+    <div class="controls only-kb">
+      <div><span class="keys"><kbd>←</kbd><kbd>→</kbd> or <kbd>A</kbd><kbd>D</kbd></span><span>Run</span></div>
+      <div><span class="keys"><kbd>Space</kbd><kbd>↑</kbd><kbd>W</kbd></span><span>Jump (hold for higher)</span></div>
+      <div><span class="keys"><kbd>R</kbd></span><span>Restart the level</span></div>
+      <div><span class="keys"><kbd>Esc</kbd></span><span>Pause</span></div>
+    </div>
+    <div class="controls only-touch">
+      <div><span class="keys"><kbd data-icon="left"></kbd><kbd data-icon="right"></kbd></span><span>Left thumb runs</span></div>
+      <div><span class="keys"><kbd data-icon="up"></kbd></span><span>Right thumb jumps (hold for higher)</span></div>
+      <div><span class="keys"><kbd data-icon="restart"></kbd></span><span>Restart, top left</span></div>
+      <p class="fine">Turn your phone sideways. Jump on the left? It’s in Settings.</p>
+    </div>
+    <button class="btn" id="btnHelpGo">Got it</button>
+  </div>
+</div>
 
 <div class="modal" id="mdlPause" hidden>
   <div class="card" role="dialog" aria-labelledby="pauseTitle">

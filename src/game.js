@@ -385,6 +385,14 @@ function toMenu() {
   hideCrash(); stage.stop();
 }
 
+let howToPlays = false; // the how-to card's button starts the game (first Play) or just closes it
+function openHowTo(play) {
+  sound.click();
+  howToPlays = play;
+  $('btnHelpGo').textContent = play ? 'Let’s go' : 'Got it';
+  ui.showModal('mdlHelp');
+}
+
 function goTitle() {
   toMenu();
   ui.renderTitle();
@@ -622,7 +630,8 @@ function onKey(e) {
   } else if (mode === 'done' && !$('mdlResult').hidden) {
     if (k === 'Enter' || k === 'Space') { e.preventDefault(); if (!$('btnNext').hidden) next(); }
     else if (k === 'KeyR' && !chal) (faking ? unfake() : startLevel(idx));
-  } else if (mode === 'menu' && k === 'Escape' && $('scrTitle').hidden) goTitle();
+  } else if (mode === 'menu' && k === 'Escape' && !$('mdlHelp').hidden) ui.showModal('mdlHelp', false);
+  else if (mode === 'menu' && k === 'Escape' && $('scrTitle').hidden) goTitle();
 }
 
 // a second tap within a few seconds confirms (no system dialog: they're blocked when the game is embedded)
@@ -643,7 +652,17 @@ function twoTap(id, label, armed, fn) {
 
 function wireButtons() {
   const on = (id, fn) => $(id).addEventListener('click', () => { sound.click(); fn(); });
-  on('btnPlay', () => startLevel(nextUnplayed()));
+  // the first time anyone presses Play, the how-to card comes first and its button starts the level
+  on('btnPlay', () => {
+    if (save.tips.howto) { startLevel(nextUnplayed()); return; }
+    save.tips.howto = true; persist();
+    openHowTo(true);
+  });
+  on('btnHowTo', () => openHowTo(false));
+  on('btnHelpGo', () => {
+    sound.click(); ui.showModal('mdlHelp', false);
+    if (howToPlays) startLevel(nextUnplayed());
+  });
   on('btnLevels', goLevels);
   on('btnCompete', openCompete);
   on('btnSettings', () => {

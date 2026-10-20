@@ -55,8 +55,17 @@ const VIEWS = [
 if (!only) for (const [name, vp] of VIEWS) {
   const page = await open(name, vp);
   await page.screenshot({ path: `artifact/shots/${name}-1-title.png` });
-  await page.click('#btnPlay');
-  await wait(700);
+  // the very first Play shows how to play first, and its button starts the level (the views share one save, so
+  // later views go straight in; they open the card from its own button instead)
+  const firstView = name === VIEWS[0][0];
+  if (!firstView) { await page.click('#btnHowTo'); await wait(400); }
+  else { await page.click('#btnPlay'); await wait(400); }
+  if (await page.evaluate(() => document.getElementById('mdlHelp').hidden)) errors.push(`[${name}] no how-to-play card`);
+  await page.screenshot({ path: `artifact/shots/${name}-1b-howto.png` });
+  await page.click('#btnHelpGo');
+  await wait(400);
+  if (!firstView) { await page.click('#btnPlay'); await wait(300); }
+  if (!(await page.evaluate(() => window.__rb.state.mode === 'play'))) errors.push(`[${name}] the level didn't start after the how-to card`);
   await page.screenshot({ path: `artifact/shots/${name}-2-level.png` });
   // beat level 1 with the solver's route
   await page.evaluate(steps => window.__rb.play(0, steps), route);

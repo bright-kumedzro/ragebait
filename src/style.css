@@ -195,6 +195,33 @@ body.swap .pads { flex-direction: row-reverse; }
 .res-stats span { font-weight: 800; font-size: 13px; opacity: 0.75; }
 .res-note { margin: 6px 0 16px; font-weight: 700; opacity: 0.75; font-size: 14px; min-height: 1em; }
 .row { display: flex; gap: 10px; }
+
+/* how to play */
+.card.howto { width: min(460px, 100%); text-align: left; }
+.card.howto h3, .card.howto .card-sub { text-align: center; }
+.rules { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rules li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; font-weight: 500; line-height: 1.35; }
+.rules li b { font-weight: 800; }
+.rules i { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; background: var(--solid); color: var(--paper); }
+.rules i svg { width: 20px; height: 20px; }
+.controls { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 16px; border-radius: 10px; background: color-mix(in srgb, var(--solid) 10%, var(--paper)); }
+.controls > div { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 700; }
+.controls .keys { flex: none; width: 128px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; opacity: 0.9; }
+.controls kbd {
+  display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 6px; font: 800 12px var(--font-body);
+  background: var(--paper); color: var(--text); border: 2px solid var(--solid); box-shadow: 0 2px 0 var(--ink);
+}
+.controls kbd svg { width: 14px; height: 14px; }
+.only-kb .keys { width: 158px; }
+.controls .fine { text-align: left; }
+.card.howto .btn { width: 100%; }
+body.touch .only-kb, body:not(.touch) .only-touch { display: none; }
+@media (max-height: 460px) {
+  .card.howto { width: min(720px, 100%); display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+  .card.howto h3, .card.howto .card-sub, .card.howto .btn { grid-column: 1 / -1; }
+  .card.howto .card-sub { margin-bottom: 10px; }
+  .rules, .controls { margin-bottom: 12px; }
+}
 .share { width: 100%; margin-top: 12px; }
 
 @media (max-height: 460px) {
